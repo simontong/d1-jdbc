@@ -2,6 +2,8 @@ package nz.co.simontong.d1jdbc
 
 import java.sql.SQLException
 import java.sql.SQLIntegrityConstraintViolationException
+import java.sql.SQLInvalidAuthorizationSpecException
+import java.sql.SQLNonTransientConnectionException
 import java.sql.SQLSyntaxErrorException
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -131,5 +133,43 @@ class D1ClientTest {
 		assertEquals(SQLException::class, error::class)
 		assertEquals("not authorized: SQLITE_AUTH", error.message)
 		assertEquals("HY000", error.sqlState)
+	}
+
+	@Test
+	fun `tells the user to check the token when Cloudflare rejects it`() {
+		server.respond(401, """
+			{"result":null,"success":false,"errors":[{"code":10000,"message":"Authentication error"}],"messages":[]}
+		""")
+
+		val error = assertFailsWith<SQLInvalidAuthorizationSpecException> {
+			client.execute(listOf(D1Statement("select 1")))
+		}
+
+		assertEquals(
+			"Cloudflare rejected the API token. Check it is valid and has D1 access. (Authentication error)",
+			error.message,
+		)
+		assertEquals("28000", error.sqlState)
+		assertEquals(10000, error.errorCode)
+	}
+
+	@Test
+	fun `tells the user when the database does not exist`() {
+		server.respond(404, """
+			{"messages":[],"result":null,"success":false,"errors":[{"code":7404,
+			"message":"The database db456 could not be found"}]}
+		""")
+
+		val error = assertFailsWith<SQLNonTransientConnectionException> {
+			client.execute(listOf(D1Statement("select 1")))
+		}
+
+		assertEquals(
+			"Cloudflare could not find this D1 database. Check the account ID and database ID. "
+				+ "(The database db456 could not be found)",
+			error.message,
+		)
+		assertEquals("08001", error.sqlState)
+		assertEquals(7404, error.errorCode)
 	}
 }

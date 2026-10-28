@@ -6,6 +6,8 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.sql.SQLException
 import java.sql.SQLIntegrityConstraintViolationException
+import java.sql.SQLInvalidAuthorizationSpecException
+import java.sql.SQLNonTransientConnectionException
 import java.sql.SQLSyntaxErrorException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -77,7 +79,7 @@ class D1Client(
 
 		val body = Json.parseToJsonElement(response.body()).jsonObject
 		if (!body.getValue("success").jsonPrimitive.boolean) {
-			throw errorFor(body.getValue("errors").jsonArray.first().jsonObject)
+			throw errorFor(response.statusCode(), body.getValue("errors").jsonArray.first().jsonObject)
 		}
 		return body.getValue("result").jsonArray.map { parseResult(it.jsonObject) }
 	}
@@ -128,12 +130,16 @@ class D1Client(
 	/**
 	 * Turns a Cloudflare error entry into the matching SQL exception.
 	 *
+	 * @param status HTTP status code of the reply
 	 * @param error one entry of the reply's `errors` array
 	 * @returns the exception to throw
 	 */
-	private fun errorFor(error: JsonObject): SQLException {
+	private fun errorFor(status: Int, error: JsonObject): SQLException {
 		val code = error.getValue("code").jsonPrimitive.int
 		val message = error.getValue("message").jsonPrimitive.content
+		if (code != SQL_ERROR_CODE) {
+			return requestErrorFor(status, code, message)
+		}
 
 		// SQLite ends each message with its error name, so match on that.
 		return when {
@@ -149,5 +155,42 @@ class D1Client(
 				SQLException(message, "HY000", code)
 			}
 		}
+	}
+
+	/**
+	 * Turns a Cloudflare error that is not about the SQL into the matching SQL exception.
+	 *
+	 * @param status HTTP status code of the reply
+	 * @param code Cloudflare error code
+	 * @param message Cloudflare error message
+	 * @returns the exception to throw
+	 */
+	private fun requestErrorFor(status: Int, code: Int, message: String): SQLException {
+		return when (status) {
+			401, 403 -> {
+				SQLInvalidAuthorizationSpecException(
+					"Cloudflare rejected the API token. Check it is valid and has D1 access. ($message)",
+					"28000",
+					code,
+				)
+			}
+
+			404 -> {
+				SQLNonTransientConnectionException(
+					"Cloudflare could not find this D1 database. Check the account ID and database ID. ($message)",
+					"08001",
+					code,
+				)
+			}
+
+			else -> {
+				SQLException(message, "HY000", code)
+			}
+		}
+	}
+
+	private companion object {
+		/** Cloudflare's error code for a failed SQL statement. */
+		const val SQL_ERROR_CODE = 7500
 	}
 }
