@@ -1,5 +1,6 @@
 package nz.co.simontong.d1jdbc
 
+import java.sql.BatchUpdateException
 import java.sql.Connection
 import java.sql.ResultSet
 import java.sql.SQLException
@@ -22,6 +23,7 @@ open class D1Statement(
 	private var maxRows = 0
 	private var queryTimeoutSeconds = 0
 	private var closeOnCompletion = false
+	private val batch = mutableListOf<D1Query>()
 
 	/**
 	 * Throws when the statement or its connection is closed.
@@ -43,18 +45,28 @@ open class D1Statement(
 	 * @throws SQLException when D1 reports an error
 	 */
 	protected fun run(queries: List<D1Query>): Boolean {
+		closeCurrentResultSet()
+		results = send(queries)
+		resultIndex = 0
+		return openCurrentResult()
+	}
+
+	/**
+	 * Sends queries to D1, applying read-only mode and the query time limit.
+	 *
+	 * @param queries queries to send
+	 * @return one result per query
+	 * @throws SQLException when a write is blocked or D1 reports an error
+	 */
+	private fun send(queries: List<D1Query>): List<D1Result> {
 		checkOpen()
 		if (connection.isReadOnly && queries.any { !isReadOnlySql(it.sql) }) {
 			throw SQLException("This connection is read-only, so statements that change data are blocked.", "25006")
 		}
-		closeCurrentResultSet()
-		results = if (queryTimeoutSeconds > 0) {
-			connection.client.execute(queries, Duration.ofSeconds(queryTimeoutSeconds.toLong()))
-		} else {
-			connection.client.execute(queries)
+		if (queryTimeoutSeconds > 0) {
+			return connection.client.execute(queries, Duration.ofSeconds(queryTimeoutSeconds.toLong()))
 		}
-		resultIndex = 0
-		return openCurrentResult()
+		return connection.client.execute(queries)
 	}
 
 	/**
@@ -177,14 +189,63 @@ open class D1Statement(
 	/** Not supported. */
 	override fun getGeneratedKeys(): ResultSet = throw notSupported("Generated keys")
 
-	/** Not supported yet. */
-	override fun addBatch(sql: String?) = throw notSupported("Batches")
+	/**
+	 * Adds SQL to the batch.
+	 *
+	 * @param sql SQL text
+	 * @throws SQLException when the statement is closed
+	 */
+	override fun addBatch(sql: String) {
+		checkOpen()
+		addToBatch(D1Query(sql))
+	}
 
-	/** Not supported yet. */
-	override fun clearBatch() = throw notSupported("Batches")
+	/**
+	 * Adds a query to the batch.
+	 *
+	 * @param query query to add
+	 */
+	protected fun addToBatch(query: D1Query) {
+		batch += query
+	}
 
-	/** Not supported yet. */
-	override fun executeBatch(): IntArray = throw notSupported("Batches")
+	/**
+	 * Empties the batch.
+	 *
+	 * @throws SQLException when the statement is closed
+	 */
+	override fun clearBatch() {
+		checkOpen()
+		batch.clear()
+	}
+
+	/**
+	 * Runs the batch in one request, which D1 saves in full or not at all.
+	 *
+	 * @return changed-row count for each statement
+	 * @throws BatchUpdateException when the batch fails
+	 */
+	override fun executeBatch(): IntArray {
+		checkOpen()
+		val queries = batch.toList()
+		batch.clear()
+		if (queries.isEmpty()) {
+			return IntArray(0)
+		}
+
+		val batchResults = try {
+			send(queries)
+		} catch (error: SQLException) {
+			throw BatchUpdateException(
+				"The batch failed and D1 saved none of it. ${error.message}",
+				error.sqlState,
+				error.errorCode,
+				IntArray(0),
+				error,
+			)
+		}
+		return batchResults.map { it.changes.toInt() }.toIntArray()
+	}
 
 	/** Closes the statement and its result set. */
 	override fun close() {

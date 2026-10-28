@@ -1,5 +1,6 @@
 package nz.co.simontong.d1jdbc
 
+import java.sql.BatchUpdateException
 import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.SQLException
@@ -296,5 +297,66 @@ class D1DriverTest {
 				connection.warnings.message,
 			)
 		}
+	}
+
+	/** Checks that the driver sends a batch in one request and returns each count. */
+	@Test
+	fun `sends a batch in one request and returns each count`() {
+		server.respond(200, """
+			{"result":[
+			{"results":{"columns":[],"rows":[]},"success":true,"meta":{"changes":1,"last_row_id":1}},
+			{"results":{"columns":[],"rows":[]},"success":true,"meta":{"changes":4,"last_row_id":1}}
+			],"errors":[],"messages":[],"success":true}
+		""")
+
+		val counts = connect().use { connection ->
+			val statement = connection.createStatement()
+			statement.addBatch("insert into t values (1)")
+			statement.addBatch("update t set a = 2")
+			statement.executeBatch()
+		}
+
+		assertEquals(listOf(1, 4), counts.toList())
+		assertEquals(
+			Json.parseToJsonElement("""
+				{"batch":[{"sql":"insert into t values (1)","params":[]},{"sql":"update t set a = 2","params":[]}]}
+			"""),
+			Json.parseToJsonElement(server.requests.single().body),
+		)
+	}
+
+	/** Checks that a failed batch says nothing was saved. */
+	@Test
+	fun `says nothing was saved when a batch fails`() {
+		server.respond(400, """
+			{"messages":[],"result":[],"success":false,"errors":[{"code":7500,
+			"message":"UNIQUE constraint failed: t.id: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_PRIMARYKEY)"}]}
+		""")
+
+		val error = assertFailsWith<BatchUpdateException> {
+			connect().use { connection ->
+				val statement = connection.createStatement()
+				statement.addBatch("insert into t values (1)")
+				statement.addBatch("insert into t values (1)")
+				statement.executeBatch()
+			}
+		}
+
+		assertEquals(
+			"The batch failed and D1 saved none of it. "
+				+ "UNIQUE constraint failed: t.id: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_PRIMARYKEY)",
+			error.message,
+		)
+		assertEquals("23000", error.sqlState)
+		assertEquals(0, error.updateCounts.size)
+	}
+
+	/** Checks that an empty batch sends nothing. */
+	@Test
+	fun `sends nothing for an empty batch`() {
+		val counts = connect().use { it.createStatement().executeBatch() }
+
+		assertEquals(0, counts.size)
+		assertTrue(server.requests.isEmpty())
 	}
 }
