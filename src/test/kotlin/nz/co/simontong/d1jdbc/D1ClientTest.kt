@@ -253,4 +253,15 @@ class D1ClientTest {
 		assertEquals("Could not reach Cloudflare's API. Check your network connection.", error.message)
 		assertEquals("08001", error.sqlState)
 	}
+
+	@Test
+	fun `reports a reply with missing fields as a connection error`() {
+		server.respond(200, """{"success":true,"result":[{"results":{"columns":["a"]}}]}""")
+
+		val error = assertFailsWith<SQLNonTransientConnectionException> {
+			client.execute(listOf(D1Statement("select 1")))
+		}
+
+		assertEquals("Cloudflare sent a reply the driver could not read (HTTP 200).", error.message)
+	}
 }

@@ -103,8 +103,28 @@ class D1Client(
 		}
 
 		val body = parseBody(response)
+		try {
+			return readReply(response.statusCode(), body)
+		} catch (error: NoSuchElementException) {
+			throw unreadableReply(response, error)
+		} catch (error: IllegalArgumentException) {
+			throw unreadableReply(response, error)
+		}
+	}
+
+	/**
+	 * Reads the results from a parsed reply, or throws the error it carries.
+	 *
+	 * @param status HTTP status code of the reply
+	 * @param body parsed reply body
+	 * @returns results in statement order
+	 * @throws SQLException when the reply reports a failure
+	 * @throws NoSuchElementException when a field is missing
+	 * @throws IllegalArgumentException when a field has the wrong type
+	 */
+	private fun readReply(status: Int, body: JsonObject): List<D1Result> {
 		if (!body.getValue("success").jsonPrimitive.boolean) {
-			throw errorFor(response.statusCode(), body.getValue("errors").jsonArray.first().jsonObject)
+			throw errorFor(status, body.getValue("errors").jsonArray.first().jsonObject)
 		}
 		return body.getValue("result").jsonArray.map { parseResult(it.jsonObject) }
 	}
