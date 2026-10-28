@@ -1,5 +1,6 @@
 package nz.co.simontong.d1jdbc
 
+import java.io.IOException
 import java.io.InputStream
 import java.io.Reader
 import java.math.BigDecimal
@@ -528,72 +529,186 @@ class D1PreparedStatement(
 		return SQLDataException("Parameter $parameterIndex can't be sent as $typeName: $x", "22018", cause)
 	}
 
-	/** Not supported yet. */
-	override fun setAsciiStream(parameterIndex: Int, x: InputStream?, length: Int) = throw notSupported("Streams")
+	/**
+	 * Reads up to a number of bytes from a stream.
+	 *
+	 * @param parameterIndex parameter number, for the error message
+	 * @param stream stream to read
+	 * @param length most bytes to read, or null for all of them
+	 * @return the bytes read
+	 * @throws SQLException when the stream fails
+	 */
+	private fun readBytes(parameterIndex: Int, stream: InputStream, length: Long?): ByteArray {
+		try {
+			return if (length == null) stream.readAllBytes() else stream.readNBytes(length.toInt())
+		} catch (error: IOException) {
+			throw SQLException("Could not read the value for parameter $parameterIndex. ${error.message}", "HY000", error)
+		}
+	}
 
-	/** Not supported yet. */
-	override fun setAsciiStream(parameterIndex: Int, x: InputStream?, length: Long) = throw notSupported("Streams")
+	/**
+	 * Reads up to a number of characters from a reader.
+	 *
+	 * @param parameterIndex parameter number, for the error message
+	 * @param reader reader to read
+	 * @param length most characters to read, or null for all of them
+	 * @return the text read
+	 * @throws SQLException when the reader fails
+	 */
+	private fun readText(parameterIndex: Int, reader: Reader, length: Long?): String {
+		try {
+			if (length == null) {
+				return reader.readText()
+			}
+			val buffer = CharArray(length.toInt())
+			var read = 0
+			while (read < buffer.size) {
+				val count = reader.read(buffer, read, buffer.size - read)
+				if (count < 0) {
+					break
+				}
+				read += count
+			}
+			return String(buffer, 0, read)
+		} catch (error: IOException) {
+			throw SQLException("Could not read the value for parameter $parameterIndex. ${error.message}", "HY000", error)
+		}
+	}
 
-	/** Not supported yet. */
-	override fun setAsciiStream(parameterIndex: Int, x: InputStream?) = throw notSupported("Streams")
+	/**
+	 * Stores the bytes read from a stream, or SQL NULL.
+	 *
+	 * @param parameterIndex parameter number
+	 * @param stream stream to read, or null
+	 * @param length most bytes to read, or null for all of them
+	 * @throws SQLException when the stream fails
+	 */
+	private fun setBytesFrom(parameterIndex: Int, stream: InputStream?, length: Long?) {
+		setBytes(parameterIndex, stream?.let { readBytes(parameterIndex, it, length) })
+	}
 
-	/** Not supported. */
+	/**
+	 * Stores the text read from a reader, or SQL NULL.
+	 *
+	 * @param parameterIndex parameter number
+	 * @param reader reader to read, or null
+	 * @param length most characters to read, or null for all of them
+	 * @throws SQLException when the reader fails
+	 */
+	private fun setTextFrom(parameterIndex: Int, reader: Reader?, length: Long?) {
+		setString(parameterIndex, reader?.let { readText(parameterIndex, it, length) })
+	}
+
+	/**
+	 * Stores the ASCII text read from a stream, or SQL NULL.
+	 *
+	 * @param parameterIndex parameter number
+	 * @param stream stream to read, or null
+	 * @param length most bytes to read, or null for all of them
+	 * @throws SQLException when the stream fails
+	 */
+	private fun setAsciiFrom(parameterIndex: Int, stream: InputStream?, length: Long?) {
+		setString(parameterIndex, stream?.let { readBytes(parameterIndex, it, length).toString(Charsets.US_ASCII) })
+	}
+
+	/** Stores ASCII text read from a stream. See [setAsciiFrom]. */
+	override fun setAsciiStream(parameterIndex: Int, x: InputStream?, length: Int) {
+		setAsciiFrom(parameterIndex, x, length.toLong())
+	}
+
+	/** Stores ASCII text read from a stream. See [setAsciiFrom]. */
+	override fun setAsciiStream(parameterIndex: Int, x: InputStream?, length: Long) = setAsciiFrom(parameterIndex, x, length)
+
+	/** Stores ASCII text read from a stream. See [setAsciiFrom]. */
+	override fun setAsciiStream(parameterIndex: Int, x: InputStream?) = setAsciiFrom(parameterIndex, x, null)
+
+	/** Not supported, as Java deprecated it. Use setCharacterStream. */
 	@Deprecated("Deprecated in Java")
-	override fun setUnicodeStream(parameterIndex: Int, x: InputStream?, length: Int) = throw notSupported("Streams")
+	override fun setUnicodeStream(parameterIndex: Int, x: InputStream?, length: Int) = throw notSupported("Unicode streams")
 
-	/** Not supported yet. */
-	override fun setBinaryStream(parameterIndex: Int, x: InputStream?, length: Int) = throw notSupported("Streams")
+	/** Stores bytes read from a stream. See [setBytesFrom]. */
+	override fun setBinaryStream(parameterIndex: Int, x: InputStream?, length: Int) {
+		setBytesFrom(parameterIndex, x, length.toLong())
+	}
 
-	/** Not supported yet. */
-	override fun setBinaryStream(parameterIndex: Int, x: InputStream?, length: Long) = throw notSupported("Streams")
+	/** Stores bytes read from a stream. See [setBytesFrom]. */
+	override fun setBinaryStream(parameterIndex: Int, x: InputStream?, length: Long) = setBytesFrom(parameterIndex, x, length)
 
-	/** Not supported yet. */
-	override fun setBinaryStream(parameterIndex: Int, x: InputStream?) = throw notSupported("Streams")
+	/** Stores bytes read from a stream. See [setBytesFrom]. */
+	override fun setBinaryStream(parameterIndex: Int, x: InputStream?) = setBytesFrom(parameterIndex, x, null)
 
-	/** Not supported yet. */
-	override fun setCharacterStream(parameterIndex: Int, reader: Reader?, length: Int) = throw notSupported("Streams")
+	/** Stores text read from a reader. See [setTextFrom]. */
+	override fun setCharacterStream(parameterIndex: Int, reader: Reader?, length: Int) {
+		setTextFrom(parameterIndex, reader, length.toLong())
+	}
 
-	/** Not supported yet. */
-	override fun setCharacterStream(parameterIndex: Int, reader: Reader?, length: Long) = throw notSupported("Streams")
+	/** Stores text read from a reader. See [setTextFrom]. */
+	override fun setCharacterStream(parameterIndex: Int, reader: Reader?, length: Long) {
+		setTextFrom(parameterIndex, reader, length)
+	}
 
-	/** Not supported yet. */
-	override fun setCharacterStream(parameterIndex: Int, reader: Reader?) = throw notSupported("Streams")
+	/** Stores text read from a reader. See [setTextFrom]. */
+	override fun setCharacterStream(parameterIndex: Int, reader: Reader?) = setTextFrom(parameterIndex, reader, null)
 
-	/** Not supported yet. */
-	override fun setNCharacterStream(parameterIndex: Int, value: Reader?, length: Long) = throw notSupported("Streams")
+	/** Stores text read from a reader. See [setTextFrom]. */
+	override fun setNCharacterStream(parameterIndex: Int, value: Reader?, length: Long) {
+		setTextFrom(parameterIndex, value, length)
+	}
 
-	/** Not supported yet. */
-	override fun setNCharacterStream(parameterIndex: Int, value: Reader?) = throw notSupported("Streams")
+	/** Stores text read from a reader. See [setTextFrom]. */
+	override fun setNCharacterStream(parameterIndex: Int, value: Reader?) = setTextFrom(parameterIndex, value, null)
 
-	/** Not supported yet. */
-	override fun setBlob(parameterIndex: Int, x: Blob?) = throw notSupported("Streams")
+	/**
+	 * Stores the bytes of a Blob, or SQL NULL.
+	 *
+	 * @param parameterIndex parameter number
+	 * @param x the Blob
+	 */
+	override fun setBlob(parameterIndex: Int, x: Blob?) = setBytes(parameterIndex, x?.let { it.getBytes(1, it.length().toInt()) })
 
-	/** Not supported yet. */
-	override fun setBlob(parameterIndex: Int, inputStream: InputStream?, length: Long) = throw notSupported("Streams")
+	/** Stores bytes read from a stream. See [setBytesFrom]. */
+	override fun setBlob(parameterIndex: Int, inputStream: InputStream?, length: Long) {
+		setBytesFrom(parameterIndex, inputStream, length)
+	}
 
-	/** Not supported yet. */
-	override fun setBlob(parameterIndex: Int, inputStream: InputStream?) = throw notSupported("Streams")
+	/** Stores bytes read from a stream. See [setBytesFrom]. */
+	override fun setBlob(parameterIndex: Int, inputStream: InputStream?) = setBytesFrom(parameterIndex, inputStream, null)
 
-	/** Not supported yet. */
-	override fun setClob(parameterIndex: Int, x: Clob?) = throw notSupported("Streams")
+	/**
+	 * Stores the text of a Clob, or SQL NULL.
+	 *
+	 * @param parameterIndex parameter number
+	 * @param x the Clob
+	 */
+	override fun setClob(parameterIndex: Int, x: Clob?) = setString(parameterIndex, x?.let { it.getSubString(1, it.length().toInt()) })
 
-	/** Not supported yet. */
-	override fun setClob(parameterIndex: Int, reader: Reader?, length: Long) = throw notSupported("Streams")
+	/** Stores text read from a reader. See [setTextFrom]. */
+	override fun setClob(parameterIndex: Int, reader: Reader?, length: Long) = setTextFrom(parameterIndex, reader, length)
 
-	/** Not supported yet. */
-	override fun setClob(parameterIndex: Int, reader: Reader?) = throw notSupported("Streams")
+	/** Stores text read from a reader. See [setTextFrom]. */
+	override fun setClob(parameterIndex: Int, reader: Reader?) = setTextFrom(parameterIndex, reader, null)
 
-	/** Not supported yet. */
-	override fun setNClob(parameterIndex: Int, value: NClob?) = throw notSupported("Streams")
+	/**
+	 * Stores the text of an NClob, or SQL NULL.
+	 *
+	 * @param parameterIndex parameter number
+	 * @param value the NClob
+	 */
+	override fun setNClob(parameterIndex: Int, value: NClob?) = setClob(parameterIndex, value)
 
-	/** Not supported yet. */
-	override fun setNClob(parameterIndex: Int, reader: Reader?, length: Long) = throw notSupported("Streams")
+	/** Stores text read from a reader. See [setTextFrom]. */
+	override fun setNClob(parameterIndex: Int, reader: Reader?, length: Long) = setTextFrom(parameterIndex, reader, length)
 
-	/** Not supported yet. */
-	override fun setNClob(parameterIndex: Int, reader: Reader?) = throw notSupported("Streams")
+	/** Stores text read from a reader. See [setTextFrom]. */
+	override fun setNClob(parameterIndex: Int, reader: Reader?) = setTextFrom(parameterIndex, reader, null)
 
-	/** Not supported yet. */
-	override fun setURL(parameterIndex: Int, x: URL?) = throw notSupported("URL values")
+	/**
+	 * Stores a URL as text, or SQL NULL.
+	 *
+	 * @param parameterIndex parameter number
+	 * @param x the URL
+	 */
+	override fun setURL(parameterIndex: Int, x: URL?) = setString(parameterIndex, x?.toString())
 
 	/** Not supported. */
 	override fun setRef(parameterIndex: Int, x: Ref?) = throw notSupported("Ref values")

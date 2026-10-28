@@ -1,7 +1,10 @@
 package nz.co.simontong.d1jdbc
 
+import java.io.ByteArrayInputStream
+import java.io.StringReader
 import java.math.BigDecimal
 import java.math.BigInteger
+import java.net.URI
 import java.sql.Date
 import java.sql.ParameterMetaData
 import java.sql.SQLException
@@ -204,6 +207,32 @@ class D1ValuesTest {
 		assertEquals(
 			Json.parseToJsonElement("""
 				{"sql":"select cast(?1 as integer), ?, ?, cast(?4 as integer), ?, ?","params":["5","3",2.5,"1",1.5,null]}
+			"""),
+			sentJson(),
+		)
+	}
+
+	/** Checks that streams and readers are read in full and sent as bytes or text. */
+	@Test
+	fun `sends streams and readers in full`() {
+		server.respondWithRows(changes = 1)
+
+		server.connect().use { connection ->
+			val statement = connection.prepareStatement("select ?, ?, ?, ?, ?, ?, ?")
+			statement.setBinaryStream(1, ByteArrayInputStream(byteArrayOf(1, 2, 3)))
+			statement.setBinaryStream(2, ByteArrayInputStream(byteArrayOf(1, 2, 3)), 2)
+			statement.setCharacterStream(3, StringReader("long text"))
+			statement.setCharacterStream(4, StringReader("long text"), 4L)
+			statement.setAsciiStream(5, ByteArrayInputStream("ascii".toByteArray()))
+			statement.setClob(6, StringReader("clob"))
+			statement.setURL(7, URI("https://example.com/a").toURL())
+			statement.execute()
+		}
+
+		assertEquals(
+			Json.parseToJsonElement("""
+				{"sql":"select ?, ?, ?, ?, ?, ?, ?",
+				"params":[[1,2,3],[1,2],"long text","long","ascii","clob","https://example.com/a"]}
 			"""),
 			sentJson(),
 		)
