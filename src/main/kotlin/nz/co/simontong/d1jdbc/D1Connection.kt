@@ -33,6 +33,7 @@ class D1Connection(
 ) : Connection {
 	private var closed = false
 	private var warnings: SQLWarning? = null
+	private var readOnly = settings.readOnly
 
 	/**
 	 * Throws when the connection is closed.
@@ -231,8 +232,20 @@ class D1Connection(
 	/** Not supported yet. */
 	override fun getMetaData(): DatabaseMetaData = throw notSupported("Database metadata")
 
-	/** Not supported yet. */
-	override fun setReadOnly(readOnly: Boolean) = throw notSupported("Changing read-only mode")
+	/**
+	 * Turns read-only mode on or off, unless the connection settings force it on.
+	 *
+	 * @param readOnly requested setting
+	 * @throws SQLException when the connection is closed
+	 */
+	override fun setReadOnly(readOnly: Boolean) {
+		checkOpen()
+		if (!readOnly && settings.readOnly) {
+			addWarning("The connection settings make this connection read-only, so it stays read-only.")
+			return
+		}
+		this.readOnly = readOnly
+	}
 
 	/**
 	 * Says whether the connection blocks statements that change data.
@@ -242,7 +255,7 @@ class D1Connection(
 	 */
 	override fun isReadOnly(): Boolean {
 		checkOpen()
-		return settings.readOnly
+		return readOnly
 	}
 
 	/**

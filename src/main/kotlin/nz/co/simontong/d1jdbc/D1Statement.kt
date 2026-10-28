@@ -44,6 +44,9 @@ open class D1Statement(
 	 */
 	protected fun run(queries: List<D1Query>): Boolean {
 		checkOpen()
+		if (connection.isReadOnly && queries.any { !isReadOnlySql(it.sql) }) {
+			throw SQLException("This connection is read-only, so statements that change data are blocked.", "25006")
+		}
 		closeCurrentResultSet()
 		results = if (queryTimeoutSeconds > 0) {
 			connection.client.execute(queries, Duration.ofSeconds(queryTimeoutSeconds.toLong()))

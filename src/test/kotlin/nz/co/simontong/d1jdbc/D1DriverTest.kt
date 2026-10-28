@@ -217,4 +217,84 @@ class D1DriverTest {
 			error.message,
 		)
 	}
+
+	/** Checks that a read-only connection blocks writes before they reach D1. */
+	@Test
+	fun `blocks writes on a read-only connection`() {
+		val writes = listOf(
+			"insert into t values (1)",
+			"  UPDATE t SET a = 1",
+			"delete from t",
+			"replace into t values (1)",
+			"create table x (id integer)",
+			"drop table t",
+			"alter table t add column b",
+			"with old as (select id from t) delete from t where id in old",
+			"select 1; drop table t",
+			"pragma foreign_keys = off",
+			"/* note */ insert into t values (1)",
+			"vacuum",
+		)
+
+		connect(extra = mapOf("readOnly" to "true")).use { connection ->
+			assertTrue(connection.isReadOnly)
+			for (sql in writes) {
+				val error = assertFailsWith<SQLException>(sql) { connection.createStatement().execute(sql) }
+				assertEquals("This connection is read-only, so statements that change data are blocked.", error.message)
+				assertEquals("25006", error.sqlState)
+			}
+		}
+
+		assertTrue(server.requests.isEmpty())
+	}
+
+	/** Checks that a read-only connection still runs reads. */
+	@Test
+	fun `runs reads on a read-only connection`() {
+		server.respond(200, """
+			{"result":[{"results":{"columns":["a"],"rows":[]},"success":true,"meta":{"changes":0,"last_row_id":0}}],
+			"errors":[],"messages":[],"success":true}
+		""")
+		val reads = listOf(
+			"select * from t",
+			"SELECT 'delete from t' AS note",
+			"select \"update\" from t",
+			"select 1 -- drop table t",
+			"with x as (select 1) select * from x",
+			"pragma table_info(t)",
+			"pragma table_list",
+			"explain query plan select * from t",
+			"values (1)",
+		)
+
+		connect(url = "jdbc:d1://acc123/db456?readOnly=true").use { connection ->
+			for (sql in reads) {
+				connection.createStatement().execute(sql)
+			}
+		}
+
+		assertEquals(reads.size, server.requests.size)
+	}
+
+	/** Checks that the IDE can turn read-only on, but not off when the connection settings ask for it. */
+	@Test
+	fun `lets the IDE turn read-only on but not off when the settings ask for it`() {
+		connect().use { connection ->
+			assertFalse(connection.isReadOnly)
+			connection.isReadOnly = true
+			assertTrue(connection.isReadOnly)
+			connection.isReadOnly = false
+			assertFalse(connection.isReadOnly)
+		}
+
+		connect(extra = mapOf("readOnly" to "true")).use { connection ->
+			connection.isReadOnly = false
+
+			assertTrue(connection.isReadOnly)
+			assertEquals(
+				"The connection settings make this connection read-only, so it stays read-only.",
+				connection.warnings.message,
+			)
+		}
+	}
 }
