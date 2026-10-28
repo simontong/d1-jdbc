@@ -1,6 +1,14 @@
 package nz.co.simontong.d1jdbc
 
+import java.sql.Date
+import java.sql.ParameterMetaData
 import java.sql.SQLException
+import java.sql.Time
+import java.sql.Timestamp
+import java.sql.Types
+import java.time.Instant
+import java.util.Calendar
+import java.util.TimeZone
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -96,6 +104,49 @@ class D1ValuesTest {
 			statement.setString(2, "b")
 			statement.clearParameters()
 			assertFailsWith<SQLException> { statement.executeQuery() }
+		}
+
+		assertTrue(server.requests.isEmpty())
+	}
+
+	/** Checks that dates and times are sent as text in the formats SQLite's date functions read. */
+	@Test
+	fun `sends dates and times in SQLite's formats`() {
+		server.respondWithRows(changes = 1)
+		val utc = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
+
+		server.connect().use { connection ->
+			val statement = connection.prepareStatement("insert into t values (?, ?, ?, ?, ?, ?)")
+			statement.setDate(1, Date.valueOf("2026-10-29"))
+			statement.setTime(2, Time.valueOf("10:11:12"))
+			statement.setTimestamp(3, Timestamp.valueOf("2026-10-29 10:11:12.345"))
+			statement.setTimestamp(4, Timestamp.valueOf("2026-10-29 10:11:12"))
+			statement.setTimestamp(5, Timestamp.from(Instant.parse("2026-10-29T10:11:12Z")), utc)
+			statement.setTimestamp(6, null)
+			statement.executeUpdate()
+		}
+
+		assertEquals(
+			Json.parseToJsonElement("""
+				{"sql":"insert into t values (?, ?, ?, ?, ?, ?)",
+				"params":["2026-10-29","10:11:12","2026-10-29 10:11:12.345","2026-10-29 10:11:12","2026-10-29 10:11:12",null]}
+			"""),
+			sentJson(),
+		)
+	}
+
+	/** Checks that the driver says how many values the SQL needs, without asking D1. */
+	@Test
+	fun `says how many values the SQL needs`() {
+		server.connect().use { connection ->
+			val parameters = connection.prepareStatement("select ?3, ?").parameterMetaData
+
+			assertEquals(4, parameters.parameterCount)
+			assertEquals(ParameterMetaData.parameterModeIn, parameters.getParameterMode(4))
+			assertEquals(ParameterMetaData.parameterNullableUnknown, parameters.isNullable(1))
+			assertEquals(Types.OTHER, parameters.getParameterType(1))
+			assertEquals("java.lang.Object", parameters.getParameterClassName(1))
+			assertFailsWith<SQLException> { parameters.getParameterMode(5) }
 		}
 
 		assertTrue(server.requests.isEmpty())

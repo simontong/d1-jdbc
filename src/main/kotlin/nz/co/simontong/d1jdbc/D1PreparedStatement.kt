@@ -20,6 +20,7 @@ import java.sql.SQLException
 import java.sql.SQLXML
 import java.sql.Time
 import java.sql.Timestamp
+import java.time.Instant
 import java.util.Calendar
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -286,24 +287,75 @@ class D1PreparedStatement(
 		bind(parameterIndex, BoundValue(JsonArray(x.map { JsonPrimitive(it.toInt() and 0xFF) })))
 	}
 
-	/** Not supported yet. */
-	override fun setDate(parameterIndex: Int, x: Date?) = throw notSupported("Sending dates")
+	/**
+	 * Stores a date as `YYYY-MM-DD` text, or SQL NULL.
+	 *
+	 * @param parameterIndex parameter number
+	 * @param x the date
+	 */
+	override fun setDate(parameterIndex: Int, x: Date?) = setString(parameterIndex, x?.let { sqlDate(it.toLocalDate()) })
 
-	/** Not supported yet. */
-	override fun setDate(parameterIndex: Int, x: Date?, cal: Calendar?) = throw notSupported("Sending dates")
+	/**
+	 * Stores a date as `YYYY-MM-DD` text in the calendar's time zone, or SQL NULL.
+	 *
+	 * @param parameterIndex parameter number
+	 * @param x the date
+	 * @param cal calendar whose time zone to use, or null for the JVM's
+	 */
+	override fun setDate(parameterIndex: Int, x: Date?, cal: Calendar?) {
+		if (x == null || cal == null) {
+			setDate(parameterIndex, x)
+			return
+		}
+		setString(parameterIndex, sqlDate(Instant.ofEpochMilli(x.time).atZone(cal.timeZone.toZoneId()).toLocalDate()))
+	}
 
-	/** Not supported yet. */
-	override fun setTime(parameterIndex: Int, x: Time?) = throw notSupported("Sending times")
+	/**
+	 * Stores a time as `HH:MM:SS` text, or SQL NULL.
+	 *
+	 * @param parameterIndex parameter number
+	 * @param x the time
+	 */
+	override fun setTime(parameterIndex: Int, x: Time?) = setString(parameterIndex, x?.let { sqlTime(it.toLocalTime()) })
 
-	/** Not supported yet. */
-	override fun setTime(parameterIndex: Int, x: Time?, cal: Calendar?) = throw notSupported("Sending times")
+	/**
+	 * Stores a time as `HH:MM:SS` text in the calendar's time zone, or SQL NULL.
+	 *
+	 * @param parameterIndex parameter number
+	 * @param x the time
+	 * @param cal calendar whose time zone to use, or null for the JVM's
+	 */
+	override fun setTime(parameterIndex: Int, x: Time?, cal: Calendar?) {
+		if (x == null || cal == null) {
+			setTime(parameterIndex, x)
+			return
+		}
+		setString(parameterIndex, sqlTime(Instant.ofEpochMilli(x.time).atZone(cal.timeZone.toZoneId()).toLocalTime()))
+	}
 
-	/** Not supported yet. */
-	override fun setTimestamp(parameterIndex: Int, x: Timestamp?) = throw notSupported("Sending timestamps")
+	/**
+	 * Stores a timestamp as `YYYY-MM-DD HH:MM:SS` text, or SQL NULL.
+	 *
+	 * @param parameterIndex parameter number
+	 * @param x the timestamp
+	 */
+	override fun setTimestamp(parameterIndex: Int, x: Timestamp?) {
+		setString(parameterIndex, x?.let { sqlDateTime(it.toLocalDateTime()) })
+	}
 
-	/** Not supported yet. */
+	/**
+	 * Stores a timestamp as `YYYY-MM-DD HH:MM:SS` text in the calendar's time zone, or SQL NULL.
+	 *
+	 * @param parameterIndex parameter number
+	 * @param x the timestamp
+	 * @param cal calendar whose time zone to use, or null for the JVM's
+	 */
 	override fun setTimestamp(parameterIndex: Int, x: Timestamp?, cal: Calendar?) {
-		throw notSupported("Sending timestamps")
+		if (x == null || cal == null) {
+			setTimestamp(parameterIndex, x)
+			return
+		}
+		setString(parameterIndex, sqlDateTime(x.toInstant().atZone(cal.timeZone.toZoneId()).toLocalDateTime()))
 	}
 
 	/** Not supported yet. */
@@ -412,6 +464,14 @@ class D1PreparedStatement(
 		return null
 	}
 
-	/** Not supported yet. */
-	override fun getParameterMetaData(): ParameterMetaData = throw notSupported("Parameter metadata")
+	/**
+	 * Describes the parameters, which D1 only lets the driver count.
+	 *
+	 * @return the parameter details
+	 * @throws SQLException when the statement is closed
+	 */
+	override fun getParameterMetaData(): ParameterMetaData {
+		checkOpen()
+		return D1ParameterMetaData(preparedSql.parameterCount)
+	}
 }
