@@ -5,6 +5,7 @@ import java.sql.ResultSet
 import java.sql.SQLException
 import java.sql.SQLWarning
 import java.sql.Statement
+import java.time.Duration
 
 /**
  * A JDBC statement that sends SQL to D1.
@@ -18,7 +19,6 @@ open class D1Statement(
 	private var results: List<D1Result> = emptyList()
 	private var resultIndex = 0
 	private var currentResultSet: D1ResultSet? = null
-	private var updateCountRead = false
 	private var maxRows = 0
 	private var queryTimeoutSeconds = 0
 	private var closeOnCompletion = false
@@ -45,9 +45,12 @@ open class D1Statement(
 	protected fun run(queries: List<D1Query>): Boolean {
 		checkOpen()
 		closeCurrentResultSet()
-		results = connection.client.execute(queries)
+		results = if (queryTimeoutSeconds > 0) {
+			connection.client.execute(queries, Duration.ofSeconds(queryTimeoutSeconds.toLong()))
+		} else {
+			connection.client.execute(queries)
+		}
 		resultIndex = 0
-		updateCountRead = false
 		return openCurrentResult()
 	}
 
@@ -122,7 +125,7 @@ open class D1Statement(
 	override fun getUpdateCount(): Int {
 		checkOpen()
 		val result = results.getOrNull(resultIndex)
-		if (result == null || result.columns.isNotEmpty() || updateCountRead) {
+		if (result == null || result.columns.isNotEmpty()) {
 			return -1
 		}
 		return result.changes.toInt()

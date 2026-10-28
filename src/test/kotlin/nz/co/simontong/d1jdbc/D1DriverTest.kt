@@ -4,6 +4,7 @@ import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.SQLException
 import java.sql.SQLNonTransientConnectionException
+import java.sql.SQLTimeoutException
 import java.util.Properties
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -116,5 +117,76 @@ class D1DriverTest {
 
 		assertEquals(listOf("password", "readOnly"), settings.map { it.name })
 		assertTrue(settings.first().required)
+	}
+
+	/** Checks that the driver returns the changed-row count for an update. */
+	@Test
+	fun `returns the changed row count for an update`() {
+		server.respond(200, """
+			{"result":[{"results":{"columns":[],"rows":[]},"success":true,"meta":{"changes":3,"last_row_id":3}}],
+			"errors":[],"messages":[],"success":true}
+		""")
+
+		val changed = connect().use { it.createStatement().executeUpdate("update t set name = 'x'") }
+
+		assertEquals(3, changed)
+	}
+
+	/** Checks that the driver refuses to treat an update as a query. */
+	@Test
+	fun `refuses to treat an update as a query`() {
+		server.respond(200, """
+			{"result":[{"results":{"columns":[],"rows":[]},"success":true,"meta":{"changes":1,"last_row_id":1}}],
+			"errors":[],"messages":[],"success":true}
+		""")
+
+		val error = assertFailsWith<SQLException> {
+			connect().use { it.createStatement().executeQuery("delete from t where id = 1") }
+		}
+
+		assertEquals("The SQL did not return rows. Use executeUpdate or execute instead.", error.message)
+	}
+
+	/** Checks that the driver walks through every result of SQL with several statements. */
+	@Test
+	fun `walks through every result of several statements`() {
+		server.respond(200, """
+			{"result":[
+			{"results":{"columns":[],"rows":[]},"success":true,"meta":{"changes":2,"last_row_id":2}},
+			{"results":{"columns":["n"],"rows":[[2]]},"success":true,"meta":{"changes":0,"last_row_id":2}}
+			],"errors":[],"messages":[],"success":true}
+		""")
+
+		connect().use { connection ->
+			val statement = connection.createStatement()
+
+			assertFalse(statement.execute("insert into t values (1), (2); select count(*) as n from t"))
+			assertNull(statement.resultSet)
+			assertEquals(2, statement.updateCount)
+			assertTrue(statement.moreResults)
+			assertEquals(-1, statement.updateCount)
+			val rows = statement.resultSet
+			assertTrue(rows.next())
+			assertEquals(2, rows.getInt("n"))
+			assertFalse(statement.moreResults)
+			assertEquals(-1, statement.updateCount)
+			assertTrue(rows.isClosed)
+		}
+	}
+
+	/** Checks that the driver applies the statement's query time limit. */
+	@Test
+	fun `applies the query time limit`() {
+		server.respond(200, "{}", delayMillis = 2_000)
+
+		val error = assertFailsWith<SQLTimeoutException> {
+			connect().use { connection ->
+				val statement = connection.createStatement()
+				statement.queryTimeout = 1
+				statement.execute("select 1")
+			}
+		}
+
+		assertEquals("Cloudflare did not reply within 1 second.", error.message)
 	}
 }

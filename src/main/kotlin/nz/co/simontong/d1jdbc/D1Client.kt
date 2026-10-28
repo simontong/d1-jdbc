@@ -76,17 +76,18 @@ class D1Client(
 	 * Runs statements on D1 and returns one result per statement.
 	 *
 	 * @param statements statements to run in order
+	 * @param timeout how long to wait for the reply
 	 * @return results in the same order
 	 * @throws SQLException when Cloudflare can't be reached or the SQL fails
 	 */
-	fun execute(statements: List<D1Query>): List<D1Result> {
+	fun execute(statements: List<D1Query>, timeout: Duration = requestTimeout): List<D1Result> {
 		val request = HttpRequest.newBuilder(URI.create("$baseUri/accounts/$accountId/d1/database/$databaseId/raw"))
 			.header("Authorization", "Bearer $apiToken")
 			.header("Content-Type", "application/json")
-			.timeout(requestTimeout)
+			.timeout(timeout)
 			.POST(HttpRequest.BodyPublishers.ofString(requestJson(statements).toString()))
 			.build()
-		val response = send(request)
+		val response = send(request, timeout)
 		if (response.statusCode() == 429) {
 			throw SQLTransientConnectionException(
 				"Cloudflare is limiting requests, either because the account made too many API calls "
@@ -133,15 +134,17 @@ class D1Client(
 	 * Sends a request and turns network failures into SQL exceptions.
 	 *
 	 * @param request request to send
+	 * @param timeout time limit set on the request, for the error message
 	 * @return the reply
 	 * @throws SQLException when the request times out or can't connect
 	 */
-	private fun send(request: HttpRequest): HttpResponse<String> {
+	private fun send(request: HttpRequest, timeout: Duration): HttpResponse<String> {
 		try {
 			return httpClient.send(request, HttpResponse.BodyHandlers.ofString())
 		} catch (error: HttpTimeoutException) {
-			val seconds = BigDecimal(requestTimeout.toMillis()).movePointLeft(3).stripTrailingZeros().toPlainString()
-			throw SQLTimeoutException("Cloudflare did not reply within $seconds seconds.", error)
+			val seconds = BigDecimal(timeout.toMillis()).movePointLeft(3).stripTrailingZeros().toPlainString()
+			val unit = if (seconds == "1") "second" else "seconds"
+			throw SQLTimeoutException("Cloudflare did not reply within $seconds $unit.", error)
 		} catch (error: ConnectException) {
 			throw SQLTransientConnectionException(
 				"Could not reach Cloudflare's API. Check your network connection.",
