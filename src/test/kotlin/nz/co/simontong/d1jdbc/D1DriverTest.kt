@@ -2,10 +2,13 @@ package nz.co.simontong.d1jdbc
 
 import java.sql.Connection
 import java.sql.DriverManager
+import java.sql.SQLException
+import java.sql.SQLNonTransientConnectionException
 import java.util.Properties
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -73,5 +76,45 @@ class D1DriverTest {
 			Json.parseToJsonElement("""{"sql":"select id, name, score from t","params":[]}"""),
 			Json.parseToJsonElement(request.body),
 		)
+	}
+
+	/** Checks that the driver leaves other drivers' URLs alone. */
+	@Test
+	fun `ignores URLs for other databases`() {
+		val driver = D1Driver()
+
+		assertFalse(driver.acceptsURL("jdbc:sqlite:test.db"))
+		assertNull(driver.connect("jdbc:sqlite:test.db", Properties()))
+		assertTrue(driver.acceptsURL("jdbc:d1://acc123/db456"))
+	}
+
+	/** Checks that the driver explains the URL format when the URL is malformed. */
+	@Test
+	fun `explains the URL format when the URL is malformed`() {
+		val error = assertFailsWith<SQLNonTransientConnectionException> {
+			connect(url = "jdbc:d1://acc123")
+		}
+
+		assertEquals("The D1 URL must look like jdbc:d1://<account id>/<database id>.", error.message)
+		assertTrue(server.requests.isEmpty())
+	}
+
+	/** Checks that the driver asks for the token when none is given. */
+	@Test
+	fun `asks for the token when none is given`() {
+		val error = assertFailsWith<SQLException> {
+			DriverManager.getConnection("jdbc:d1://acc123/db456", Properties())
+		}
+
+		assertEquals("No Cloudflare API token was given. Enter it as the connection password.", error.message)
+	}
+
+	/** Checks that the driver lists the settings an IDE should ask for. */
+	@Test
+	fun `lists the settings an IDE should ask for`() {
+		val settings = D1Driver().getPropertyInfo("jdbc:d1://acc123/db456", Properties())
+
+		assertEquals(listOf("password", "readOnly"), settings.map { it.name })
+		assertTrue(settings.first().required)
 	}
 }
