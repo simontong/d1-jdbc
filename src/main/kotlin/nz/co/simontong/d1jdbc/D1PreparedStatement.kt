@@ -55,10 +55,16 @@ class D1PreparedStatement(
 	 *
 	 * @param parameterIndex parameter number, starting at 1
 	 * @param value value to store
-	 * @throws SQLException when the statement is closed
+	 * @throws SQLException when the statement is closed or there is no such parameter
 	 */
 	private fun bind(parameterIndex: Int, value: BoundValue) {
 		checkOpen()
+		if (parameterIndex < 1 || parameterIndex > preparedSql.parameterCount) {
+			throw SQLException(
+				"There is no parameter $parameterIndex. The SQL has ${preparedSql.parameterCount}.",
+				"07009",
+			)
+		}
 		values[parameterIndex] = value
 	}
 
@@ -91,11 +97,17 @@ class D1PreparedStatement(
 	 * Builds the query to send from the SQL and the bound values.
 	 *
 	 * @return the query
-	 * @throws SQLException when the statement is closed
+	 * @throws SQLException when the statement is closed or a parameter has no value
 	 */
 	private fun query(): D1Query {
 		checkOpen()
-		val params = (1..preparedSql.parameterCount).map { values[it]?.json ?: JsonNull }
+		val params = (1..preparedSql.parameterCount).map { number ->
+			val value = values[number] ?: throw SQLException(
+				"Parameter $number has no value. Set every parameter before running the SQL.",
+				"07001",
+			)
+			value.json
+		}
 		val wholeNumbers = values.filterValues { it.wholeNumber }.keys
 		return D1Query(preparedSql.render(wholeNumbers), params)
 	}
@@ -130,6 +142,30 @@ class D1PreparedStatement(
 	 * @throws SQLException when the statement is closed
 	 */
 	override fun addBatch() = addToBatch(query())
+
+	/**
+	 * Builds the error for SQL passed to a method that runs the prepared SQL.
+	 *
+	 * @return the exception to throw
+	 */
+	private fun sqlNotAllowed(): SQLException {
+		return SQLException(
+			"A prepared statement runs the SQL it was made with. Call the method without SQL.",
+			"HY000",
+		)
+	}
+
+	/** Refused, as a prepared statement runs its own SQL. */
+	override fun executeQuery(sql: String): ResultSet = throw sqlNotAllowed()
+
+	/** Refused, as a prepared statement runs its own SQL. */
+	override fun executeUpdate(sql: String): Int = throw sqlNotAllowed()
+
+	/** Refused, as a prepared statement runs its own SQL. */
+	override fun execute(sql: String): Boolean = throw sqlNotAllowed()
+
+	/** Refused, as a prepared statement runs its own SQL. */
+	override fun addBatch(sql: String) = throw sqlNotAllowed()
 
 	/**
 	 * Stores SQL NULL.
