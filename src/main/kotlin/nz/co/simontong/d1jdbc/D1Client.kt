@@ -9,6 +9,7 @@ import java.sql.SQLIntegrityConstraintViolationException
 import java.sql.SQLInvalidAuthorizationSpecException
 import java.sql.SQLNonTransientConnectionException
 import java.sql.SQLSyntaxErrorException
+import java.sql.SQLTransientConnectionException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -76,6 +77,13 @@ class D1Client(
 			.POST(HttpRequest.BodyPublishers.ofString(requestJson(statements).toString()))
 			.build()
 		val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+		if (response.statusCode() == 429) {
+			throw SQLTransientConnectionException(
+				"Cloudflare is limiting requests, either because the account made too many API calls "
+					+ "or because the database is overloaded. Wait a few minutes and try again.",
+				"08001",
+			)
+		}
 
 		val body = Json.parseToJsonElement(response.body()).jsonObject
 		if (!body.getValue("success").jsonPrimitive.boolean) {

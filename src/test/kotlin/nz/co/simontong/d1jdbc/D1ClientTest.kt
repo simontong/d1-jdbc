@@ -5,6 +5,7 @@ import java.sql.SQLIntegrityConstraintViolationException
 import java.sql.SQLInvalidAuthorizationSpecException
 import java.sql.SQLNonTransientConnectionException
 import java.sql.SQLSyntaxErrorException
+import java.sql.SQLTransientConnectionException
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -171,5 +172,21 @@ class D1ClientTest {
 		)
 		assertEquals("08001", error.sqlState)
 		assertEquals(7404, error.errorCode)
+	}
+
+	@Test
+	fun `tells the user to wait when Cloudflare rate limits the account`() {
+		server.respond(429, "Too Many Requests")
+
+		val error = assertFailsWith<SQLTransientConnectionException> {
+			client.execute(listOf(D1Statement("select 1")))
+		}
+
+		assertEquals(
+			"Cloudflare is limiting requests, either because the account made too many API calls "
+				+ "or because the database is overloaded. Wait a few minutes and try again.",
+			error.message,
+		)
+		assertEquals("08001", error.sqlState)
 	}
 }
