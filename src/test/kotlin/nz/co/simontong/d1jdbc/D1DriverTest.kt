@@ -1,0 +1,77 @@
+package nz.co.simontong.d1jdbc
+
+import java.sql.Connection
+import java.sql.DriverManager
+import java.util.Properties
+import kotlin.test.AfterTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+import kotlinx.serialization.json.Json
+
+/**
+ * Tests the driver through the standard JDBC interface, the way an IDE uses it.
+ */
+class D1DriverTest {
+	private val server = StubD1Server()
+
+	/** Stops the stub server after each test. */
+	@AfterTest
+	fun stopServer() {
+		server.close()
+	}
+
+	/**
+	 * Opens a connection to the stub server through DriverManager.
+	 *
+	 * @param url JDBC URL to connect to
+	 * @param extra extra connection properties
+	 * @return the open connection
+	 */
+	private fun connect(url: String = "jdbc:d1://acc123/db456", extra: Map<String, String> = emptyMap()): Connection {
+		val properties = Properties()
+		properties["password"] = "secret-token"
+		properties["apiBaseUrl"] = server.baseUri.toString()
+		extra.forEach { (key, value) -> properties[key] = value }
+		return DriverManager.getConnection(url, properties)
+	}
+
+	/** Checks that the driver runs a query and reads its rows. */
+	@Test
+	fun `runs a query and reads its rows`() {
+		server.respond(200, """
+			{"result":[{"results":{"columns":["id","name","score"],"rows":[[1,"a",2.5],[2,null,3]]},"success":true,
+			"meta":{"changes":0,"last_row_id":0}}],"errors":[],"messages":[],"success":true}
+		""")
+
+		connect().use { connection ->
+			connection.createStatement().use { statement ->
+				val rows = statement.executeQuery("select id, name, score from t")
+
+				val metaData = rows.metaData
+				assertEquals(3, metaData.columnCount)
+				assertEquals(listOf("id", "name", "score"), (1..3).map { metaData.getColumnLabel(it) })
+				assertTrue(rows.next())
+				assertEquals(1L, rows.getLong("id"))
+				assertEquals("a", rows.getString(2))
+				assertEquals(2.5, rows.getDouble("score"))
+				assertTrue(rows.next())
+				assertEquals(2, rows.getInt(1))
+				assertNull(rows.getString("name"))
+				assertTrue(rows.wasNull())
+				assertEquals(3.0, rows.getDouble(3))
+				assertFalse(rows.next())
+			}
+		}
+
+		val request = server.requests.single()
+		assertEquals("/client/v4/accounts/acc123/d1/database/db456/raw", request.path)
+		assertEquals("Bearer secret-token", request.authorization)
+		assertEquals(
+			Json.parseToJsonElement("""{"sql":"select id, name, score from t","params":[]}"""),
+			Json.parseToJsonElement(request.body),
+		)
+	}
+}
