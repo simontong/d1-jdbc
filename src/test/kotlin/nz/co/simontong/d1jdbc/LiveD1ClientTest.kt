@@ -24,7 +24,7 @@ class LiveD1ClientTest {
 			apiToken = token,
 		)
 
-		val result = client.execute(listOf(D1Statement("select ? as answer", listOf(JsonPrimitive("hello"))))).single()
+		val result = client.execute(listOf(D1Query("select ? as answer", listOf(JsonPrimitive("hello"))))).single()
 
 		assertEquals(listOf("answer"), result.columns)
 		assertEquals(listOf(listOf(JsonPrimitive("hello"))), result.rows)

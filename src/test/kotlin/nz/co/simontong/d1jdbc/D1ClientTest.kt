@@ -44,7 +44,7 @@ class D1ClientTest {
 			"meta":{"changes":0,"last_row_id":7}}],"errors":[],"messages":[],"success":true}
 		""")
 
-		val results = client.execute(listOf(D1Statement("select id, name from t where id > ?", listOf(JsonPrimitive(0)))))
+		val results = client.execute(listOf(D1Query("select id, name from t where id > ?", listOf(JsonPrimitive(0)))))
 
 		val request = server.requests.single()
 		assertEquals("POST", request.method)
@@ -76,8 +76,8 @@ class D1ClientTest {
 		""")
 
 		val results = client.execute(listOf(
-			D1Statement("insert into t(name) values (?)", listOf(JsonPrimitive("x"))),
-			D1Statement("select count(*) as n from t"),
+			D1Query("insert into t(name) values (?)", listOf(JsonPrimitive("x"))),
+			D1Query("select count(*) as n from t"),
 		))
 
 		assertEquals(
@@ -102,7 +102,7 @@ class D1ClientTest {
 		""")
 
 		val error = assertFailsWith<SQLIntegrityConstraintViolationException> {
-			client.execute(listOf(D1Statement("insert into t(id) values (1)")))
+			client.execute(listOf(D1Query("insert into t(id) values (1)")))
 		}
 
 		assertEquals(
@@ -122,7 +122,7 @@ class D1ClientTest {
 		""")
 
 		val error = assertFailsWith<SQLSyntaxErrorException> {
-			client.execute(listOf(D1Statement("selec 1")))
+			client.execute(listOf(D1Query("selec 1")))
 		}
 
 		assertEquals("near \"selec\": syntax error at offset 0: SQLITE_ERROR", error.message)
@@ -137,7 +137,7 @@ class D1ClientTest {
 		""")
 
 		val error = assertFailsWith<SQLException> {
-			client.execute(listOf(D1Statement("pragma query_only = 1")))
+			client.execute(listOf(D1Query("pragma query_only = 1")))
 		}
 
 		assertEquals(SQLException::class, error::class)
@@ -153,7 +153,7 @@ class D1ClientTest {
 		""")
 
 		val error = assertFailsWith<SQLInvalidAuthorizationSpecException> {
-			client.execute(listOf(D1Statement("select 1")))
+			client.execute(listOf(D1Query("select 1")))
 		}
 
 		assertEquals(
@@ -173,7 +173,7 @@ class D1ClientTest {
 		""")
 
 		val error = assertFailsWith<SQLNonTransientConnectionException> {
-			client.execute(listOf(D1Statement("select 1")))
+			client.execute(listOf(D1Query("select 1")))
 		}
 
 		assertEquals(
@@ -191,7 +191,7 @@ class D1ClientTest {
 		server.respond(429, "Too Many Requests")
 
 		val error = assertFailsWith<SQLTransientConnectionException> {
-			client.execute(listOf(D1Statement("select 1")))
+			client.execute(listOf(D1Query("select 1")))
 		}
 
 		assertEquals(
@@ -208,7 +208,7 @@ class D1ClientTest {
 		server.respond(502, "<html>Bad gateway</html>")
 
 		val error = assertFailsWith<SQLTransientConnectionException> {
-			client.execute(listOf(D1Statement("select 1")))
+			client.execute(listOf(D1Query("select 1")))
 		}
 
 		assertEquals("Cloudflare's API failed with HTTP 502. Try again shortly.", error.message)
@@ -221,7 +221,7 @@ class D1ClientTest {
 		server.respond(200, "<html>not json</html>")
 
 		val error = assertFailsWith<SQLNonTransientConnectionException> {
-			client.execute(listOf(D1Statement("select 1")))
+			client.execute(listOf(D1Query("select 1")))
 		}
 
 		assertEquals("Cloudflare sent a reply the driver could not read (HTTP 200).", error.message)
@@ -241,7 +241,7 @@ class D1ClientTest {
 		)
 
 		val error = assertFailsWith<SQLTimeoutException> {
-			impatientClient.execute(listOf(D1Statement("select 1")))
+			impatientClient.execute(listOf(D1Query("select 1")))
 		}
 
 		assertEquals("Cloudflare did not reply within 0.2 seconds.", error.message)
@@ -259,7 +259,7 @@ class D1ClientTest {
 		)
 
 		val error = assertFailsWith<SQLTransientConnectionException> {
-			offlineClient.execute(listOf(D1Statement("select 1")))
+			offlineClient.execute(listOf(D1Query("select 1")))
 		}
 
 		assertEquals("Could not reach Cloudflare's API. Check your network connection.", error.message)
@@ -272,7 +272,7 @@ class D1ClientTest {
 		server.respond(200, """{"success":true,"result":[{"results":{"columns":["a"]}}]}""")
 
 		val error = assertFailsWith<SQLNonTransientConnectionException> {
-			client.execute(listOf(D1Statement("select 1")))
+			client.execute(listOf(D1Query("select 1")))
 		}
 
 		assertEquals("Cloudflare sent a reply the driver could not read (HTTP 200).", error.message)

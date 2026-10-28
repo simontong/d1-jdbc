@@ -34,7 +34,7 @@ import kotlinx.serialization.json.long
  * @property sql SQL text
  * @property params bound values in order
  */
-data class D1Statement(
+data class D1Query(
 	val sql: String,
 	val params: List<JsonElement> = emptyList(),
 )
@@ -79,7 +79,7 @@ class D1Client(
 	 * @return results in the same order
 	 * @throws SQLException when Cloudflare can't be reached or the SQL fails
 	 */
-	fun execute(statements: List<D1Statement>): List<D1Result> {
+	fun execute(statements: List<D1Query>): List<D1Result> {
 		val request = HttpRequest.newBuilder(URI.create("$baseUri/accounts/$accountId/d1/database/$databaseId/raw"))
 			.header("Authorization", "Bearer $apiToken")
 			.header("Content-Type", "application/json")
@@ -188,7 +188,7 @@ class D1Client(
 	 * @param statements statements to send
 	 * @return JSON request body
 	 */
-	private fun requestJson(statements: List<D1Statement>): JsonObject {
+	private fun requestJson(statements: List<D1Query>): JsonObject {
 		if (statements.size == 1) {
 			return statementJson(statements.single())
 		}
@@ -201,7 +201,7 @@ class D1Client(
 	 * @param statement statement to encode
 	 * @return JSON object with `sql` and `params`
 	 */
-	private fun statementJson(statement: D1Statement): JsonObject {
+	private fun statementJson(statement: D1Query): JsonObject {
 		return JsonObject(mapOf(
 			"sql" to JsonPrimitive(statement.sql),
 			"params" to JsonArray(statement.params),
