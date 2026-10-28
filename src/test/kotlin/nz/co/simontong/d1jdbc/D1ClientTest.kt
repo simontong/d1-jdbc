@@ -52,4 +52,31 @@ class D1ClientTest {
 		assertEquals(0L, result.changes)
 		assertEquals(7L, result.lastRowId)
 	}
+
+	@Test
+	fun `runs several statements as one batch`() {
+		server.respond(200, """
+			{"result":[
+			{"results":{"columns":[],"rows":[]},"success":true,"meta":{"changes":1,"last_row_id":5}},
+			{"results":{"columns":["n"],"rows":[[5]]},"success":true,"meta":{"changes":0,"last_row_id":5}}
+			],"errors":[],"messages":[],"success":true}
+		""")
+
+		val results = client.execute(listOf(
+			D1Statement("insert into t(name) values (?)", listOf(JsonPrimitive("x"))),
+			D1Statement("select count(*) as n from t"),
+		))
+
+		assertEquals(
+			Json.parseToJsonElement("""
+				{"batch":[
+				{"sql":"insert into t(name) values (?)","params":["x"]},
+				{"sql":"select count(*) as n from t","params":[]}
+				]}
+			"""),
+			Json.parseToJsonElement(server.requests.single().body),
+		)
+		assertEquals(listOf(1L, 0L), results.map { it.changes })
+		assertEquals(listOf(listOf(JsonPrimitive(5))), results[1].rows)
+	}
 }

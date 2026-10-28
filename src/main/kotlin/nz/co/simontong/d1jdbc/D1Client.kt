@@ -66,12 +66,25 @@ class D1Client(
 		val request = HttpRequest.newBuilder(URI.create("$baseUri/accounts/$accountId/d1/database/$databaseId/raw"))
 			.header("Authorization", "Bearer $apiToken")
 			.header("Content-Type", "application/json")
-			.POST(HttpRequest.BodyPublishers.ofString(statementJson(statements.single()).toString()))
+			.POST(HttpRequest.BodyPublishers.ofString(requestJson(statements).toString()))
 			.build()
 		val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
 
 		val body = Json.parseToJsonElement(response.body()).jsonObject
 		return body.getValue("result").jsonArray.map { parseResult(it.jsonObject) }
+	}
+
+	/**
+	 * Builds the request body, using `batch` when there is more than one statement.
+	 *
+	 * @param statements statements to send
+	 * @returns JSON request body
+	 */
+	private fun requestJson(statements: List<D1Statement>): JsonObject {
+		if (statements.size == 1) {
+			return statementJson(statements.single())
+		}
+		return JsonObject(mapOf("batch" to JsonArray(statements.map { statementJson(it) })))
 	}
 
 	/**
