@@ -21,10 +21,10 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 
@@ -76,7 +76,7 @@ class D1Client(
 	 * Runs statements on D1 and returns one result per statement.
 	 *
 	 * @param statements statements to run in order
-	 * @returns results in the same order
+	 * @return results in the same order
 	 * @throws SQLException when Cloudflare can't be reached or the SQL fails
 	 */
 	fun execute(statements: List<D1Statement>): List<D1Result> {
@@ -117,7 +117,7 @@ class D1Client(
 	 *
 	 * @param status HTTP status code of the reply
 	 * @param body parsed reply body
-	 * @returns results in statement order
+	 * @return results in statement order
 	 * @throws SQLException when the reply reports a failure
 	 * @throws NoSuchElementException when a field is missing
 	 * @throws IllegalArgumentException when a field has the wrong type
@@ -133,7 +133,7 @@ class D1Client(
 	 * Sends a request and turns network failures into SQL exceptions.
 	 *
 	 * @param request request to send
-	 * @returns the reply
+	 * @return the reply
 	 * @throws SQLException when the request times out or can't connect
 	 */
 	private fun send(request: HttpRequest): HttpResponse<String> {
@@ -155,7 +155,7 @@ class D1Client(
 	 * Parses the reply body as a JSON object.
 	 *
 	 * @param response reply to parse
-	 * @returns the JSON object
+	 * @return the JSON object
 	 * @throws SQLNonTransientConnectionException when the body isn't a JSON object
 	 */
 	private fun parseBody(response: HttpResponse<String>): JsonObject {
@@ -172,7 +172,7 @@ class D1Client(
 	 *
 	 * @param response the unreadable reply
 	 * @param cause parse failure, if any
-	 * @returns the exception to throw
+	 * @return the exception to throw
 	 */
 	private fun unreadableReply(response: HttpResponse<String>, cause: Throwable?): SQLException {
 		return SQLNonTransientConnectionException(
@@ -186,7 +186,7 @@ class D1Client(
 	 * Builds the request body, using `batch` when there is more than one statement.
 	 *
 	 * @param statements statements to send
-	 * @returns JSON request body
+	 * @return JSON request body
 	 */
 	private fun requestJson(statements: List<D1Statement>): JsonObject {
 		if (statements.size == 1) {
@@ -199,7 +199,7 @@ class D1Client(
 	 * Builds the JSON body for one statement.
 	 *
 	 * @param statement statement to encode
-	 * @returns JSON object with `sql` and `params`
+	 * @return JSON object with `sql` and `params`
 	 */
 	private fun statementJson(statement: D1Statement): JsonObject {
 		return JsonObject(mapOf(
@@ -212,7 +212,7 @@ class D1Client(
 	 * Reads one statement result from the `/raw` reply.
 	 *
 	 * @param result one entry of the reply's `result` array
-	 * @returns the parsed result
+	 * @return the parsed result
 	 */
 	private fun parseResult(result: JsonObject): D1Result {
 		val results = result.getValue("results").jsonObject
@@ -230,7 +230,7 @@ class D1Client(
 	 *
 	 * @param status HTTP status code of the reply
 	 * @param error one entry of the reply's `errors` array
-	 * @returns the exception to throw
+	 * @return the exception to throw
 	 */
 	private fun errorFor(status: Int, error: JsonObject): SQLException {
 		val code = error.getValue("code").jsonPrimitive.int
@@ -261,7 +261,7 @@ class D1Client(
 	 * @param status HTTP status code of the reply
 	 * @param code Cloudflare error code
 	 * @param message Cloudflare error message
-	 * @returns the exception to throw
+	 * @return the exception to throw
 	 */
 	private fun requestErrorFor(status: Int, code: Int, message: String): SQLException {
 		return when (status) {

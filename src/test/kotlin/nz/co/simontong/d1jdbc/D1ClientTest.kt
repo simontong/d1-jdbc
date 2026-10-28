@@ -36,6 +36,7 @@ class D1ClientTest {
 		server.close()
 	}
 
+	/** Checks that the client runs one statement and returns its rows. */
 	@Test
 	fun `runs one statement and returns its rows`() {
 		server.respond(200, """
@@ -64,6 +65,7 @@ class D1ClientTest {
 		assertEquals(7L, result.lastRowId)
 	}
 
+	/** Checks that the client runs several statements as one batch. */
 	@Test
 	fun `runs several statements as one batch`() {
 		server.respond(200, """
@@ -91,6 +93,7 @@ class D1ClientTest {
 		assertEquals(listOf(listOf(JsonPrimitive(5))), results[1].rows)
 	}
 
+	/** Checks that the client reports a broken constraint as an integrity error. */
 	@Test
 	fun `reports a broken constraint as an integrity error`() {
 		server.respond(400, """
@@ -110,6 +113,7 @@ class D1ClientTest {
 		assertEquals(7500, error.errorCode)
 	}
 
+	/** Checks that the client reports bad SQL as a syntax error. */
 	@Test
 	fun `reports bad SQL as a syntax error`() {
 		server.respond(400, """
@@ -125,6 +129,7 @@ class D1ClientTest {
 		assertEquals("42000", error.sqlState)
 	}
 
+	/** Checks that the client reports other SQL failures as a general database error. */
 	@Test
 	fun `reports other SQL failures as a general database error`() {
 		server.respond(400, """
@@ -140,6 +145,7 @@ class D1ClientTest {
 		assertEquals("HY000", error.sqlState)
 	}
 
+	/** Checks that the client tells the user to check the token when Cloudflare rejects it. */
 	@Test
 	fun `tells the user to check the token when Cloudflare rejects it`() {
 		server.respond(401, """
@@ -158,6 +164,7 @@ class D1ClientTest {
 		assertEquals(10000, error.errorCode)
 	}
 
+	/** Checks that the client tells the user when the database does not exist. */
 	@Test
 	fun `tells the user when the database does not exist`() {
 		server.respond(404, """
@@ -178,6 +185,7 @@ class D1ClientTest {
 		assertEquals(7404, error.errorCode)
 	}
 
+	/** Checks that the client tells the user to wait when Cloudflare rate limits the account. */
 	@Test
 	fun `tells the user to wait when Cloudflare rate limits the account`() {
 		server.respond(429, "Too Many Requests")
@@ -194,6 +202,7 @@ class D1ClientTest {
 		assertEquals("08001", error.sqlState)
 	}
 
+	/** Checks that the client reports a Cloudflare outage as a temporary connection error. */
 	@Test
 	fun `reports a Cloudflare outage as a temporary connection error`() {
 		server.respond(502, "<html>Bad gateway</html>")
@@ -206,6 +215,7 @@ class D1ClientTest {
 		assertEquals("08001", error.sqlState)
 	}
 
+	/** Checks that the client reports a reply it cannot read as a connection error. */
 	@Test
 	fun `reports a reply it cannot read as a connection error`() {
 		server.respond(200, "<html>not json</html>")
@@ -218,6 +228,7 @@ class D1ClientTest {
 		assertEquals("08000", error.sqlState)
 	}
 
+	/** Checks that the client gives up when Cloudflare takes too long. */
 	@Test
 	fun `gives up when Cloudflare takes too long`() {
 		server.respond(200, "{}", delayMillis = 2_000)
@@ -236,6 +247,7 @@ class D1ClientTest {
 		assertEquals("Cloudflare did not reply within 0.2 seconds.", error.message)
 	}
 
+	/** Checks that the client reports an unreachable API as a temporary connection error. */
 	@Test
 	fun `reports an unreachable API as a temporary connection error`() {
 		val closedPort = ServerSocket(0).use { it.localPort }
@@ -254,6 +266,7 @@ class D1ClientTest {
 		assertEquals("08001", error.sqlState)
 	}
 
+	/** Checks that the client reports a reply with missing fields as a connection error. */
 	@Test
 	fun `reports a reply with missing fields as a connection error`() {
 		server.respond(200, """{"success":true,"result":[{"results":{"columns":["a"]}}]}""")
