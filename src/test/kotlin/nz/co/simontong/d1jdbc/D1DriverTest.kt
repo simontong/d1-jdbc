@@ -395,4 +395,34 @@ class D1DriverTest {
 			assertFailsWith<SQLException> { connection.isValid(-1) }
 		}
 	}
+
+	/** Checks that the driver describes D1 to the IDE. */
+	@Test
+	fun `describes D1 to the IDE`() {
+		connect(extra = mapOf("readOnly" to "true")).use { connection ->
+			val metaData = connection.metaData
+
+			assertEquals("Cloudflare D1", metaData.databaseProductName)
+			assertEquals("jdbc:d1://acc123/db456", metaData.url)
+			assertTrue(metaData.isReadOnly)
+			assertFalse(metaData.supportsTransactions())
+			assertEquals(Connection.TRANSACTION_NONE, metaData.defaultTransactionIsolation)
+			assertTrue(metaData.supportsBatchUpdates())
+
+			val schemas = metaData.schemas
+			assertTrue(schemas.next())
+			assertEquals("main", schemas.getString("TABLE_SCHEM"))
+			assertNull(schemas.getString("TABLE_CATALOG"))
+			assertFalse(schemas.next())
+
+			val tableTypes = metaData.tableTypes
+			val types = generateSequence { if (tableTypes.next()) tableTypes.getString(1) else null }.toList()
+			assertEquals(listOf("TABLE", "VIEW"), types)
+
+			val tables = metaData.getTables(null, null, "%", null)
+			assertEquals(10, tables.metaData.columnCount)
+			assertEquals("TABLE_NAME", tables.metaData.getColumnLabel(3))
+		}
+		assertTrue(server.requests.isEmpty())
+	}
 }

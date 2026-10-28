@@ -230,8 +230,20 @@ class D1Connection(
 	/** @return whether the connection is closed */
 	override fun isClosed(): Boolean = closed
 
-	/** Not supported yet. */
-	override fun getMetaData(): DatabaseMetaData = throw notSupported("Database metadata")
+	/**
+	 * Describes D1 and its schema.
+	 *
+	 * @return the database metadata
+	 * @throws SQLException when the connection is closed
+	 */
+	override fun getMetaData(): DatabaseMetaData {
+		checkOpen()
+		return D1DatabaseMetaData(this)
+	}
+
+	/** The JDBC URL for this database. */
+	internal val url: String
+		get() = "jdbc:d1://${settings.accountId}/${settings.databaseId}"
 
 	/**
 	 * Turns read-only mode on or off, unless the connection settings force it on.
