@@ -1,8 +1,12 @@
 package nz.co.simontong.d1jdbc
 
+import java.sql.SQLException
+import java.sql.SQLIntegrityConstraintViolationException
+import java.sql.SQLSyntaxErrorException
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
@@ -78,5 +82,54 @@ class D1ClientTest {
 		)
 		assertEquals(listOf(1L, 0L), results.map { it.changes })
 		assertEquals(listOf(listOf(JsonPrimitive(5))), results[1].rows)
+	}
+
+	@Test
+	fun `reports a broken constraint as an integrity error`() {
+		server.respond(400, """
+			{"messages":[],"result":[],"success":false,"errors":[{"code":7500,
+			"message":"UNIQUE constraint failed: t.id: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_PRIMARYKEY)"}]}
+		""")
+
+		val error = assertFailsWith<SQLIntegrityConstraintViolationException> {
+			client.execute(listOf(D1Statement("insert into t(id) values (1)")))
+		}
+
+		assertEquals(
+			"UNIQUE constraint failed: t.id: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_PRIMARYKEY)",
+			error.message,
+		)
+		assertEquals("23000", error.sqlState)
+		assertEquals(7500, error.errorCode)
+	}
+
+	@Test
+	fun `reports bad SQL as a syntax error`() {
+		server.respond(400, """
+			{"messages":[],"result":[],"success":false,"errors":[{"code":7500,
+			"message":"near \"selec\": syntax error at offset 0: SQLITE_ERROR"}]}
+		""")
+
+		val error = assertFailsWith<SQLSyntaxErrorException> {
+			client.execute(listOf(D1Statement("selec 1")))
+		}
+
+		assertEquals("near \"selec\": syntax error at offset 0: SQLITE_ERROR", error.message)
+		assertEquals("42000", error.sqlState)
+	}
+
+	@Test
+	fun `reports other SQL failures as a general database error`() {
+		server.respond(400, """
+			{"messages":[],"result":[],"success":false,"errors":[{"code":7500,"message":"not authorized: SQLITE_AUTH"}]}
+		""")
+
+		val error = assertFailsWith<SQLException> {
+			client.execute(listOf(D1Statement("pragma query_only = 1")))
+		}
+
+		assertEquals(SQLException::class, error::class)
+		assertEquals("not authorized: SQLITE_AUTH", error.message)
+		assertEquals("HY000", error.sqlState)
 	}
 }

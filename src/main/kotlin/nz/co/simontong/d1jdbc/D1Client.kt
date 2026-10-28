@@ -4,6 +4,9 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.sql.SQLException
+import java.sql.SQLIntegrityConstraintViolationException
+import java.sql.SQLSyntaxErrorException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -11,6 +14,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 
@@ -71,6 +76,9 @@ class D1Client(
 		val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
 
 		val body = Json.parseToJsonElement(response.body()).jsonObject
+		if (!body.getValue("success").jsonPrimitive.boolean) {
+			throw errorFor(body.getValue("errors").jsonArray.first().jsonObject)
+		}
 		return body.getValue("result").jsonArray.map { parseResult(it.jsonObject) }
 	}
 
@@ -115,5 +123,31 @@ class D1Client(
 			changes = meta.getValue("changes").jsonPrimitive.long,
 			lastRowId = meta.getValue("last_row_id").jsonPrimitive.long,
 		)
+	}
+
+	/**
+	 * Turns a Cloudflare error entry into the matching SQL exception.
+	 *
+	 * @param error one entry of the reply's `errors` array
+	 * @returns the exception to throw
+	 */
+	private fun errorFor(error: JsonObject): SQLException {
+		val code = error.getValue("code").jsonPrimitive.int
+		val message = error.getValue("message").jsonPrimitive.content
+
+		// SQLite ends each message with its error name, so match on that.
+		return when {
+			message.contains("SQLITE_CONSTRAINT") -> {
+				SQLIntegrityConstraintViolationException(message, "23000", code)
+			}
+
+			message.endsWith("SQLITE_ERROR") -> {
+				SQLSyntaxErrorException(message, "42000", code)
+			}
+
+			else -> {
+				SQLException(message, "HY000", code)
+			}
+		}
 	}
 }
