@@ -18,6 +18,7 @@ import java.sql.SQLXML
 import java.sql.Savepoint
 import java.sql.Statement
 import java.sql.Struct
+import java.time.Duration
 import java.util.Properties
 import java.util.concurrent.Executor
 
@@ -343,8 +344,33 @@ class D1Connection(
 	/** Not supported. */
 	override fun createSQLXML(): SQLXML = throw notSupported("SQLXML values")
 
-	/** Not supported yet. */
-	override fun isValid(timeout: Int): Boolean = throw notSupported("Connection checks")
+	/**
+	 * Checks the connection works by running `select 1` on D1.
+	 *
+	 * @param timeout time limit in seconds, where 0 means the default
+	 * @return true when D1 answered
+	 * @throws SQLException when the time limit is negative
+	 */
+	override fun isValid(timeout: Int): Boolean {
+		if (timeout < 0) {
+			throw SQLException("The time limit can't be negative.", "HY024")
+		}
+		if (closed) {
+			return false
+		}
+
+		val query = listOf(D1Query("select 1"))
+		try {
+			if (timeout > 0) {
+				client.execute(query, Duration.ofSeconds(timeout.toLong()))
+			} else {
+				client.execute(query)
+			}
+		} catch (error: SQLException) {
+			return false
+		}
+		return true
+	}
 
 	/**
 	 * Ignored, as D1 has no client info settings.

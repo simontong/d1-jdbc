@@ -359,4 +359,40 @@ class D1DriverTest {
 		assertEquals(0, counts.size)
 		assertTrue(server.requests.isEmpty())
 	}
+
+	/** Checks that the driver refuses work on a closed connection. */
+	@Test
+	fun `refuses work on a closed connection`() {
+		val connection = connect()
+		val statement = connection.createStatement()
+		connection.close()
+		connection.close()
+
+		assertTrue(connection.isClosed)
+		val error = assertFailsWith<SQLNonTransientConnectionException> { statement.execute("select 1") }
+		assertEquals("The connection is closed.", error.message)
+		assertFailsWith<SQLNonTransientConnectionException> { connection.createStatement() }
+		assertTrue(server.requests.isEmpty())
+	}
+
+	/** Checks that the driver confirms a live connection by running a query. */
+	@Test
+	fun `confirms a live connection by running a query`() {
+		server.respond(200, """
+			{"result":[{"results":{"columns":["1"],"rows":[[1]]},"success":true,"meta":{"changes":0,"last_row_id":0}}],
+			"errors":[],"messages":[],"success":true}
+		""")
+
+		connect().use { connection ->
+			assertTrue(connection.isValid(5))
+			assertEquals(
+				Json.parseToJsonElement("""{"sql":"select 1","params":[]}"""),
+				Json.parseToJsonElement(server.requests.single().body),
+			)
+
+			server.respond(401, """{"success":false,"errors":[{"code":10000,"message":"Authentication error"}]}""")
+			assertFalse(connection.isValid(5))
+			assertFailsWith<SQLException> { connection.isValid(-1) }
+		}
+	}
 }
