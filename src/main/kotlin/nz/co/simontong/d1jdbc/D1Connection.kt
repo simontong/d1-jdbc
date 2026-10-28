@@ -157,8 +157,35 @@ class D1Connection(
 		return sql
 	}
 
-	/** Not supported yet. */
-	override fun setAutoCommit(autoCommit: Boolean) = throw notSupported("Changing auto-commit")
+	/**
+	 * Stays in auto-commit, adding a warning when asked to turn it off.
+	 *
+	 * @param autoCommit requested setting
+	 * @throws SQLException when the connection is closed
+	 */
+	override fun setAutoCommit(autoCommit: Boolean) {
+		checkOpen()
+
+		// Throwing here breaks IDE schema sync, see DBE-3115.
+		if (!autoCommit) {
+			addWarning("D1 has no transactions, so every statement is saved as soon as it runs.")
+		}
+	}
+
+	/**
+	 * Adds a warning to the end of the warning chain.
+	 *
+	 * @param message warning text
+	 */
+	private fun addWarning(message: String) {
+		val warning = SQLWarning(message, "01000")
+		val first = warnings
+		if (first == null) {
+			warnings = warning
+		} else {
+			first.setNextWarning(warning)
+		}
+	}
 
 	/**
 	 * Says whether each statement is saved straight away, which is always true on D1.
@@ -171,11 +198,27 @@ class D1Connection(
 		return true
 	}
 
-	/** Not supported yet. */
-	override fun commit() = throw notSupported("Commit")
+	/**
+	 * Does nothing, as every statement is already saved.
+	 *
+	 * @throws SQLException when the connection is closed
+	 */
+	override fun commit() {
+		checkOpen()
+	}
 
-	/** Not supported yet. */
-	override fun rollback() = throw notSupported("Rollback")
+	/**
+	 * Always fails, as D1 has already saved every change.
+	 *
+	 * @throws SQLException always
+	 */
+	override fun rollback() {
+		checkOpen()
+		throw SQLException(
+			"D1 has no transactions, so changes were saved as each statement ran and can't be rolled back.",
+			"25000",
+		)
+	}
 
 	/** Closes the connection. Closing it again does nothing. */
 	override fun close() {

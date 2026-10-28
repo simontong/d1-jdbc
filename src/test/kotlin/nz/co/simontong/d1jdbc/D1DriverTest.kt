@@ -189,4 +189,32 @@ class D1DriverTest {
 
 		assertEquals("Cloudflare did not reply within 1 second.", error.message)
 	}
+
+	/** Checks that the driver stays in auto-commit and warns when asked to turn it off. */
+	@Test
+	fun `stays in auto-commit and warns when asked to turn it off`() {
+		connect().use { connection ->
+			connection.autoCommit = false
+
+			assertTrue(connection.autoCommit)
+			assertEquals(
+				"D1 has no transactions, so every statement is saved as soon as it runs.",
+				connection.warnings.message,
+			)
+			connection.commit()
+		}
+	}
+
+	/** Checks that the driver says changes can't be undone when asked to roll back. */
+	@Test
+	fun `says changes can't be undone when asked to roll back`() {
+		val error = assertFailsWith<SQLException> {
+			connect().use { it.rollback() }
+		}
+
+		assertEquals(
+			"D1 has no transactions, so changes were saved as each statement ran and can't be rolled back.",
+			error.message,
+		)
+	}
 }
