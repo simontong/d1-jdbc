@@ -272,6 +272,43 @@ class D1ValuesTest {
 		}
 	}
 
+	/** Checks that dates and times stored as text in SQLite's formats read back as dates and times. */
+	@Test
+	fun `reads dates and times stored as text`() {
+		server.respondWithRows(
+			columns = """["d","ts","t","zoned","n"]""",
+			rows = """[["2026-10-29","2026-10-29 10:11:12.345","10:11:12","2026-10-29T10:11:12+13:00",5]]""",
+		)
+		val utc = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
+
+		server.connect().use { connection ->
+			val rows = connection.createStatement().executeQuery("select * from t")
+			assertTrue(rows.next())
+
+			assertEquals(Date.valueOf("2026-10-29"), rows.getDate("d"))
+			assertEquals(Timestamp.valueOf("2026-10-29 00:00:00"), rows.getTimestamp("d"))
+			assertEquals(Timestamp.valueOf("2026-10-29 10:11:12.345"), rows.getTimestamp("ts"))
+			assertEquals(Instant.parse("2026-10-29T10:11:12.345Z"), rows.getTimestamp("ts", utc).toInstant())
+			assertEquals(Date.valueOf("2026-10-29"), rows.getDate("ts"))
+			assertEquals(Time.valueOf("10:11:12"), rows.getTime("t"))
+			assertEquals(Time.valueOf("10:11:12").time + 345, rows.getTime("ts").time)
+			assertEquals(Instant.parse("2026-10-28T21:11:12Z"), rows.getTimestamp("zoned").toInstant())
+
+			assertEquals(LocalDate.parse("2026-10-29"), rows.getObject("d", LocalDate::class.java))
+			assertEquals(LocalDateTime.parse("2026-10-29T10:11:12.345"), rows.getObject("ts", LocalDateTime::class.java))
+			assertEquals(LocalTime.parse("10:11:12"), rows.getObject("t", LocalTime::class.java))
+			assertEquals(Instant.parse("2026-10-29T10:11:12.345Z"), rows.getObject("ts", Instant::class.java))
+			assertEquals(
+				OffsetDateTime.parse("2026-10-29T10:11:12+13:00"),
+				rows.getObject("zoned", OffsetDateTime::class.java),
+			)
+
+			val error = assertFailsWith<SQLException> { rows.getDate("n") }
+			assertEquals("Column n can't be read as a date.", error.message)
+			assertFailsWith<SQLException> { rows.getDate("t") }
+		}
+	}
+
 	/** Checks that setObject names a Java type the driver can't send. */
 	@Test
 	fun `names a Java type setObject can't send`() {

@@ -5,6 +5,7 @@ import java.io.InputStream
 import java.io.Reader
 import java.io.StringReader
 import java.math.BigDecimal
+import java.math.BigInteger
 import java.net.URL
 import java.sql.Array as SqlArray
 import java.sql.Blob
@@ -22,6 +23,13 @@ import java.sql.SQLXML
 import java.sql.Statement
 import java.sql.Time
 import java.sql.Timestamp
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.ZoneOffset
 import java.util.Calendar
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -205,23 +213,93 @@ class D1ResultSet(
 		}
 	}
 
-	/** Not supported yet. */
-	override fun getDate(columnIndex: Int): Date? = throw notSupported("Reading dates")
+	/**
+	 * Reads a value as SQLite date and time text.
+	 *
+	 * @param columnIndex column number
+	 * @param typeName type that was asked for, for error messages
+	 * @param needsDate whether the text must hold a date
+	 * @param needsTime whether the text must hold a time
+	 * @return the parts read, or null for SQL NULL
+	 * @throws SQLException when the value isn't date or time text with the needed parts
+	 */
+	private fun dateTime(columnIndex: Int, typeName: String, needsDate: Boolean, needsTime: Boolean): SqlDateTime? {
+		val element = value(columnIndex) ?: return null
+		val text = (element as? JsonPrimitive)?.takeIf { it.isString }?.content
+		val parsed = text?.let { parseSqlDateTime(it) } ?: throw conversionError(columnIndex, typeName)
+		if ((needsDate && parsed.date == null) || (needsTime && parsed.time == null)) {
+			throw conversionError(columnIndex, typeName)
+		}
+		return parsed
+	}
 
-	/** Not supported yet. */
-	override fun getTime(columnIndex: Int): Time? = throw notSupported("Reading times")
+	/**
+	 * Returns the time zone to read times without one in.
+	 *
+	 * @param cal calendar the caller passed, or null
+	 * @return the calendar's time zone, or the JVM's
+	 */
+	private fun zoneOf(cal: Calendar?): ZoneId = cal?.timeZone?.toZoneId() ?: ZoneId.systemDefault()
 
-	/** Not supported yet. */
-	override fun getTimestamp(columnIndex: Int): Timestamp? = throw notSupported("Reading timestamps")
+	/**
+	 * Reads the moment a value describes.
+	 *
+	 * @param parsed date and time read from the value
+	 * @param zone time zone to use when the text has none
+	 * @return the moment
+	 */
+	private fun instantOf(parsed: SqlDateTime, zone: ZoneId): Instant {
+		val local = LocalDateTime.of(parsed.date!!, parsed.time ?: LocalTime.MIDNIGHT)
+		return parsed.offset?.let { local.toInstant(it) } ?: local.atZone(zone).toInstant()
+	}
 
-	/** Not supported yet. */
-	override fun getDate(columnIndex: Int, cal: Calendar?): Date? = throw notSupported("Reading dates")
+	/** @return the date part of SQLite date text, or null for SQL NULL */
+	override fun getDate(columnIndex: Int): Date? = getDate(columnIndex, null)
 
-	/** Not supported yet. */
-	override fun getTime(columnIndex: Int, cal: Calendar?): Time? = throw notSupported("Reading times")
+	/**
+	 * Reads the date part of SQLite date text, as midnight in the calendar's time zone.
+	 *
+	 * @param columnIndex column number
+	 * @param cal calendar whose time zone to use, or null for the JVM's
+	 * @return the date, or null for SQL NULL
+	 * @throws SQLException when the value isn't date text
+	 */
+	override fun getDate(columnIndex: Int, cal: Calendar?): Date? {
+		val parsed = dateTime(columnIndex, "a date", needsDate = true, needsTime = false) ?: return null
+		return Date(parsed.date!!.atStartOfDay(zoneOf(cal)).toInstant().toEpochMilli())
+	}
 
-	/** Not supported yet. */
-	override fun getTimestamp(columnIndex: Int, cal: Calendar?): Timestamp? = throw notSupported("Reading timestamps")
+	/** @return the time part of SQLite time text, or null for SQL NULL */
+	override fun getTime(columnIndex: Int): Time? = getTime(columnIndex, null)
+
+	/**
+	 * Reads the time part of SQLite time text, on 1 January 1970 in the calendar's time zone.
+	 *
+	 * @param columnIndex column number
+	 * @param cal calendar whose time zone to use, or null for the JVM's
+	 * @return the time, or null for SQL NULL
+	 * @throws SQLException when the value isn't time text
+	 */
+	override fun getTime(columnIndex: Int, cal: Calendar?): Time? {
+		val parsed = dateTime(columnIndex, "a time", needsDate = false, needsTime = true) ?: return null
+		return Time(LocalDateTime.of(LocalDate.EPOCH, parsed.time!!).atZone(zoneOf(cal)).toInstant().toEpochMilli())
+	}
+
+	/** @return the moment SQLite date text describes, or null for SQL NULL */
+	override fun getTimestamp(columnIndex: Int): Timestamp? = getTimestamp(columnIndex, null)
+
+	/**
+	 * Reads the moment SQLite date text describes, using the calendar's time zone when the text has none.
+	 *
+	 * @param columnIndex column number
+	 * @param cal calendar whose time zone to use, or null for the JVM's
+	 * @return the timestamp, or null for SQL NULL
+	 * @throws SQLException when the value isn't date text
+	 */
+	override fun getTimestamp(columnIndex: Int, cal: Calendar?): Timestamp? {
+		val parsed = dateTime(columnIndex, "a timestamp", needsDate = true, needsTime = false) ?: return null
+		return Timestamp.from(instantOf(parsed, zoneOf(cal)))
+	}
 
 	/** @return the value as ASCII bytes, or null for SQL NULL */
 	override fun getAsciiStream(columnIndex: Int): InputStream? {
@@ -263,8 +341,75 @@ class D1ResultSet(
 		}
 	}
 
-	/** Not supported yet. */
-	override fun <T : Any?> getObject(columnIndex: Int, type: Class<T>?): T = throw notSupported("Typed getObject")
+	/**
+	 * Reads the value as the given Java type.
+	 *
+	 * @param columnIndex column number
+	 * @param type Java class to return
+	 * @return the value, or null for SQL NULL
+	 * @throws SQLException when the value can't be read as that type
+	 */
+	override fun <T : Any?> getObject(columnIndex: Int, type: Class<T>?): T? {
+		if (type == null) {
+			throw SQLException("A type must be given.", "HY009")
+		}
+		// Primitive classes like int.class become their boxed classes, so cast() works.
+		@Suppress("UNCHECKED_CAST")
+		val boxed = (type as Class<Any>).kotlin.javaObjectType
+		val result: Any? = when (boxed) {
+			Any::class.java -> getObject(columnIndex)
+			String::class.java -> getString(columnIndex)
+			Long::class.javaObjectType -> getLong(columnIndex)
+			Int::class.javaObjectType -> getInt(columnIndex)
+			Short::class.javaObjectType -> getShort(columnIndex)
+			Byte::class.javaObjectType -> getByte(columnIndex)
+			Double::class.javaObjectType -> getDouble(columnIndex)
+			Float::class.javaObjectType -> getFloat(columnIndex)
+			Boolean::class.javaObjectType -> getBoolean(columnIndex)
+			BigDecimal::class.java -> getBigDecimal(columnIndex)
+			BigInteger::class.java -> getBigDecimal(columnIndex)?.toBigInteger()
+			ByteArray::class.java -> getBytes(columnIndex)
+			Date::class.java -> getDate(columnIndex)
+			Time::class.java -> getTime(columnIndex)
+			Timestamp::class.java -> getTimestamp(columnIndex)
+			LocalDate::class.java -> dateTime(columnIndex, "a date", needsDate = true, needsTime = false)?.date
+			LocalTime::class.java -> dateTime(columnIndex, "a time", needsDate = false, needsTime = true)?.time
+			LocalDateTime::class.java -> localDateTime(columnIndex)
+			OffsetDateTime::class.java -> offsetDateTime(columnIndex)
+			Instant::class.java -> offsetDateTime(columnIndex)?.toInstant()
+			else -> throw notSupported("Reading ${type.name} values")
+		}
+		if (lastWasNull) {
+			return null
+		}
+		@Suppress("UNCHECKED_CAST")
+		return boxed.cast(result) as T
+	}
+
+	/**
+	 * Reads SQLite date text as a date and time, ignoring any time zone.
+	 *
+	 * @param columnIndex column number
+	 * @return the date and time, or null for SQL NULL
+	 * @throws SQLException when the value isn't date text
+	 */
+	private fun localDateTime(columnIndex: Int): LocalDateTime? {
+		val parsed = dateTime(columnIndex, "a date and time", needsDate = true, needsTime = false) ?: return null
+		return LocalDateTime.of(parsed.date!!, parsed.time ?: LocalTime.MIDNIGHT)
+	}
+
+	/**
+	 * Reads SQLite date text as a date and time with a time zone, using UTC when it has none, as SQLite does.
+	 *
+	 * @param columnIndex column number
+	 * @return the date and time, or null for SQL NULL
+	 * @throws SQLException when the value isn't date text
+	 */
+	private fun offsetDateTime(columnIndex: Int): OffsetDateTime? {
+		val local = localDateTime(columnIndex) ?: return null
+		val parsed = dateTime(columnIndex, "a date and time", needsDate = true, needsTime = false)!!
+		return local.atOffset(parsed.offset ?: ZoneOffset.UTC)
+	}
 
 	/** Not supported. */
 	override fun getObject(columnIndex: Int, map: MutableMap<String, Class<*>>?): Any? = throw notSupported("Type maps")
@@ -399,7 +544,7 @@ class D1ResultSet(
 	override fun getUnicodeStream(columnLabel: String?): InputStream? = getUnicodeStream(findColumn(columnLabel))
 
 	/** Reads a column by name. See the column number version. */
-	override fun <T : Any?> getObject(columnLabel: String?, type: Class<T>?): T = getObject(findColumn(columnLabel), type)
+	override fun <T : Any?> getObject(columnLabel: String?, type: Class<T>?): T? = getObject(findColumn(columnLabel), type)
 	/** @return null, as result sets raise no warnings */
 	override fun getWarnings(): SQLWarning? {
 		checkOpen()
