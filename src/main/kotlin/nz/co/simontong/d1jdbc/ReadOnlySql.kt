@@ -18,7 +18,7 @@ private val READ_PRAGMAS = setOf(
 )
 
 /** Comments, string literals and quoted names, which can hold any word. */
-private val QUOTED_OR_COMMENT = Regex("""--[^\n]*|/\*[\s\S]*?(\*/|$)|'(?:[^']|'')*'|"(?:[^"]|"")*"|`[^`]*`|\[[^\]]*]""")
+internal val QUOTED_OR_COMMENT = Regex("""--[^\n]*|/\*[\s\S]*?(\*/|$)|'(?:[^']|'')*'|"(?:[^"]|"")*"|`[^`]*`|\[[^\]]*]""")
 
 /**
  * Says whether SQL only reads data, as a safety net for read-only connections.

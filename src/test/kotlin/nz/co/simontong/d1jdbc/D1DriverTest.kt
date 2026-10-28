@@ -36,11 +36,7 @@ class D1DriverTest {
 	 * @return the open connection
 	 */
 	private fun connect(url: String = "jdbc:d1://acc123/db456", extra: Map<String, String> = emptyMap()): Connection {
-		val properties = Properties()
-		properties["password"] = "secret-token"
-		properties["apiBaseUrl"] = server.baseUri.toString()
-		extra.forEach { (key, value) -> properties[key] = value }
-		return DriverManager.getConnection(url, properties)
+		return server.connect(url, extra)
 	}
 
 	/** Checks that the driver runs a query and reads its rows. */

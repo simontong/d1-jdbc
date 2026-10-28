@@ -3,6 +3,9 @@ package nz.co.simontong.d1jdbc
 import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
 import java.net.URI
+import java.sql.Connection
+import java.sql.DriverManager
+import java.util.Properties
 
 /**
  * A request the stub server received.
@@ -69,6 +72,35 @@ class StubD1Server : AutoCloseable {
 		this.status = status
 		this.responseBody = body
 		this.delayMillis = delayMillis
+	}
+
+	/**
+	 * Opens a JDBC connection to this server through DriverManager.
+	 *
+	 * @param url JDBC URL to connect to
+	 * @param extra extra connection properties
+	 * @return the open connection
+	 */
+	fun connect(url: String = "jdbc:d1://acc123/db456", extra: Map<String, String> = emptyMap()): Connection {
+		val properties = Properties()
+		properties["password"] = "secret-token"
+		properties["apiBaseUrl"] = baseUri.toString()
+		extra.forEach { (key, value) -> properties[key] = value }
+		return DriverManager.getConnection(url, properties)
+	}
+
+	/**
+	 * Replies to every following request with one successful result.
+	 *
+	 * @param columns column names as JSON, like `["a","b"]`
+	 * @param rows rows as JSON, like `[[1,"x"]]`
+	 * @param changes changed-row count
+	 */
+	fun respondWithRows(columns: String = "[]", rows: String = "[]", changes: Int = 0) {
+		respond(200, """
+			{"result":[{"results":{"columns":$columns,"rows":$rows},"success":true,
+			"meta":{"changes":$changes,"last_row_id":0}}],"errors":[],"messages":[],"success":true}
+		""")
 	}
 
 	/** Stops the server. */

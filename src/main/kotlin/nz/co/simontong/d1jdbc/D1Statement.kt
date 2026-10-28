@@ -97,8 +97,17 @@ open class D1Statement(
 	 * @return the rows
 	 * @throws SQLException when the SQL doesn't return rows
 	 */
-	override fun executeQuery(sql: String): ResultSet {
-		if (!run(listOf(D1Query(sql)))) {
+	override fun executeQuery(sql: String): ResultSet = runQuery(D1Query(sql))
+
+	/**
+	 * Runs a query that returns rows.
+	 *
+	 * @param query query to run
+	 * @return the rows
+	 * @throws SQLException when the query doesn't return rows
+	 */
+	protected fun runQuery(query: D1Query): ResultSet {
+		if (!run(listOf(query))) {
 			throw SQLException("The SQL did not return rows. Use executeUpdate or execute instead.", "07000")
 		}
 		return currentResultSet!!
@@ -111,8 +120,17 @@ open class D1Statement(
 	 * @return number of rows changed
 	 * @throws SQLException when the SQL returns rows
 	 */
-	override fun executeUpdate(sql: String): Int {
-		if (run(listOf(D1Query(sql)))) {
+	override fun executeUpdate(sql: String): Int = runUpdate(D1Query(sql))
+
+	/**
+	 * Runs a query that changes data.
+	 *
+	 * @param query query to run
+	 * @return number of rows changed
+	 * @throws SQLException when the query returns rows
+	 */
+	protected fun runUpdate(query: D1Query): Int {
+		if (run(listOf(query))) {
 			closeCurrentResultSet()
 			throw SQLException("The SQL returned rows. Use executeQuery or execute instead.", "07000")
 		}
