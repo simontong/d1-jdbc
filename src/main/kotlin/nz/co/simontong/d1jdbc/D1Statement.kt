@@ -154,7 +154,7 @@ open class D1Statement(
 		return currentResultSet
 	}
 
-	/** @return the current update count, or -1 when the current result is rows or there are no more */
+	/** @return the current update count, or -1 for rows or when there are no more results */
 	override fun getUpdateCount(): Int {
 		checkOpen()
 		val result = results.getOrNull(resultIndex)

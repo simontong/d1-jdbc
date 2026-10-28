@@ -273,7 +273,7 @@ class D1DriverTest {
 		assertEquals(reads.size, server.requests.size)
 	}
 
-	/** Checks that the IDE can turn read-only on, but not off when the connection settings ask for it. */
+	/** Checks that the IDE can't turn read-only off when the connection settings ask for it. */
 	@Test
 	fun `lets the IDE turn read-only on but not off when the settings ask for it`() {
 		connect().use { connection ->

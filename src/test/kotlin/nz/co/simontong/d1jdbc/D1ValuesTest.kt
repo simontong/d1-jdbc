@@ -19,10 +19,12 @@ import java.time.LocalTime
 import java.time.OffsetDateTime
 import java.util.Calendar
 import java.util.TimeZone
+import java.util.UUID
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
 
@@ -238,7 +240,7 @@ class D1ValuesTest {
 		)
 	}
 
-	/** Checks that a column's type comes from all its values, so decimals read alike in every row. */
+	/** Checks that a column's type comes from all its values, so every row reads alike. */
 	@Test
 	fun `reads a column as one type based on all its values`() {
 		server.respondWithRows(
@@ -272,7 +274,7 @@ class D1ValuesTest {
 		}
 	}
 
-	/** Checks that dates and times stored as text in SQLite's formats read back as dates and times. */
+	/** Checks that dates and times stored as text in SQLite's formats read back as dates. */
 	@Test
 	fun `reads dates and times stored as text`() {
 		server.respondWithRows(
@@ -306,6 +308,33 @@ class D1ValuesTest {
 			val error = assertFailsWith<SQLException> { rows.getDate("n") }
 			assertEquals("Column n can't be read as a date.", error.message)
 			assertFailsWith<SQLException> { rows.getDate("t") }
+		}
+	}
+
+	/** Checks that getObject with a class returns that class, and null for SQL NULL. */
+	@Test
+	fun `reads values as the class asked for`() {
+		server.respondWithRows(columns = """["n","d","t","b","z"]""", rows = """[[42,2.5,"hi",[255],null]]""")
+
+		server.connect().use { connection ->
+			val rows = connection.createStatement().executeQuery("select * from t")
+			assertTrue(rows.next())
+
+			assertEquals(42, rows.getObject("n", Int::class.javaPrimitiveType))
+			assertEquals(42L, rows.getObject("n", Long::class.javaObjectType))
+			assertEquals(BigInteger("42"), rows.getObject("n", BigInteger::class.java))
+			assertEquals("42", rows.getObject("n", String::class.java))
+			assertEquals(true, rows.getObject("n", Boolean::class.javaObjectType))
+			assertEquals(BigDecimal("2.5"), rows.getObject("d", BigDecimal::class.java))
+			assertEquals(2.5f, rows.getObject("d", Float::class.javaObjectType))
+			assertEquals(2.5, rows.getObject("d", Any::class.java))
+			assertEquals("hi", rows.getObject("t", String::class.java))
+			assertEquals(listOf<Byte>(-1), rows.getObject("b", ByteArray::class.java)?.toList())
+			assertNull(rows.getObject("z", Long::class.javaObjectType))
+			assertNull(rows.getObject("z", Int::class.javaPrimitiveType))
+
+			val error = assertFailsWith<SQLException> { rows.getObject("n", UUID::class.java) }
+			assertEquals("Not supported by the D1 driver: Reading java.util.UUID values.", error.message)
 		}
 	}
 

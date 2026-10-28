@@ -289,7 +289,7 @@ class D1ResultSet(
 	override fun getTimestamp(columnIndex: Int): Timestamp? = getTimestamp(columnIndex, null)
 
 	/**
-	 * Reads the moment SQLite date text describes, using the calendar's time zone when the text has none.
+	 * Reads the moment SQLite date text describes, in the calendar's time zone if it has none.
 	 *
 	 * @param columnIndex column number
 	 * @param cal calendar whose time zone to use, or null for the JVM's
@@ -399,7 +399,7 @@ class D1ResultSet(
 	}
 
 	/**
-	 * Reads SQLite date text as a date and time with a time zone, using UTC when it has none, as SQLite does.
+	 * Reads SQLite date text with its time zone, using UTC when it has none, as SQLite does.
 	 *
 	 * @param columnIndex column number
 	 * @return the date and time, or null for SQL NULL

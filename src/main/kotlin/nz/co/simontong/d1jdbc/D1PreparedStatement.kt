@@ -457,7 +457,7 @@ class D1PreparedStatement(
 	}
 
 	/**
-	 * Stores a value after converting it to the target SQL type. The scale is ignored, as D1 stores decimals as REAL.
+	 * Stores a value after converting it to the target SQL type, ignoring the scale.
 	 *
 	 * @param parameterIndex parameter number
 	 * @param x the value, or null for SQL NULL

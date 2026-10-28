@@ -5,7 +5,7 @@ import java.sql.SQLException
 import java.sql.Types
 
 /**
- * Parameter details for a prepared statement. D1 doesn't describe parameters, so only the count is known.
+ * Parameter details for a prepared statement, where only the count is known.
  *
  * @param parameterCount number of parameters the SQL needs
  */
