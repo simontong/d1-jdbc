@@ -1,15 +1,21 @@
 package nz.co.simontong.d1jdbc
 
+import java.math.BigDecimal
+import java.net.ConnectException
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.net.http.HttpTimeoutException
 import java.sql.SQLException
 import java.sql.SQLIntegrityConstraintViolationException
 import java.sql.SQLInvalidAuthorizationSpecException
 import java.sql.SQLNonTransientConnectionException
 import java.sql.SQLSyntaxErrorException
+import java.sql.SQLTimeoutException
 import java.sql.SQLTransientConnectionException
+import java.time.Duration
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -55,12 +61,14 @@ data class D1Result(
  * @param databaseId D1 database ID
  * @param apiToken API token with D1 access
  * @param baseUri Cloudflare API base address
+ * @param requestTimeout how long to wait for each reply
  */
 class D1Client(
 	private val accountId: String,
 	private val databaseId: String,
 	private val apiToken: String,
 	private val baseUri: URI = URI.create("https://api.cloudflare.com/client/v4"),
+	private val requestTimeout: Duration = Duration.ofSeconds(60),
 ) {
 	private val httpClient = HttpClient.newHttpClient()
 
@@ -69,14 +77,16 @@ class D1Client(
 	 *
 	 * @param statements statements to run in order
 	 * @returns results in the same order
+	 * @throws SQLException when Cloudflare can't be reached or the SQL fails
 	 */
 	fun execute(statements: List<D1Statement>): List<D1Result> {
 		val request = HttpRequest.newBuilder(URI.create("$baseUri/accounts/$accountId/d1/database/$databaseId/raw"))
 			.header("Authorization", "Bearer $apiToken")
 			.header("Content-Type", "application/json")
+			.timeout(requestTimeout)
 			.POST(HttpRequest.BodyPublishers.ofString(requestJson(statements).toString()))
 			.build()
-		val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+		val response = send(request)
 		if (response.statusCode() == 429) {
 			throw SQLTransientConnectionException(
 				"Cloudflare is limiting requests, either because the account made too many API calls "
@@ -85,11 +95,71 @@ class D1Client(
 			)
 		}
 
-		val body = Json.parseToJsonElement(response.body()).jsonObject
+		if (response.statusCode() >= 500) {
+			throw SQLTransientConnectionException(
+				"Cloudflare's API failed with HTTP ${response.statusCode()}. Try again shortly.",
+				"08001",
+			)
+		}
+
+		val body = parseBody(response)
 		if (!body.getValue("success").jsonPrimitive.boolean) {
 			throw errorFor(response.statusCode(), body.getValue("errors").jsonArray.first().jsonObject)
 		}
 		return body.getValue("result").jsonArray.map { parseResult(it.jsonObject) }
+	}
+
+	/**
+	 * Sends a request and turns network failures into SQL exceptions.
+	 *
+	 * @param request request to send
+	 * @returns the reply
+	 * @throws SQLException when the request times out or can't connect
+	 */
+	private fun send(request: HttpRequest): HttpResponse<String> {
+		try {
+			return httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+		} catch (error: HttpTimeoutException) {
+			val seconds = BigDecimal(requestTimeout.toMillis()).movePointLeft(3).stripTrailingZeros().toPlainString()
+			throw SQLTimeoutException("Cloudflare did not reply within $seconds seconds.", error)
+		} catch (error: ConnectException) {
+			throw SQLTransientConnectionException(
+				"Could not reach Cloudflare's API. Check your network connection.",
+				"08001",
+				error,
+			)
+		}
+	}
+
+	/**
+	 * Parses the reply body as a JSON object.
+	 *
+	 * @param response reply to parse
+	 * @returns the JSON object
+	 * @throws SQLNonTransientConnectionException when the body isn't a JSON object
+	 */
+	private fun parseBody(response: HttpResponse<String>): JsonObject {
+		val element = try {
+			Json.parseToJsonElement(response.body())
+		} catch (error: SerializationException) {
+			throw unreadableReply(response, error)
+		}
+		return element as? JsonObject ?: throw unreadableReply(response, null)
+	}
+
+	/**
+	 * Builds the error for a reply the driver can't read.
+	 *
+	 * @param response the unreadable reply
+	 * @param cause parse failure, if any
+	 * @returns the exception to throw
+	 */
+	private fun unreadableReply(response: HttpResponse<String>, cause: Throwable?): SQLException {
+		return SQLNonTransientConnectionException(
+			"Cloudflare sent a reply the driver could not read (HTTP ${response.statusCode()}).",
+			"08000",
+			cause,
+		)
 	}
 
 	/**

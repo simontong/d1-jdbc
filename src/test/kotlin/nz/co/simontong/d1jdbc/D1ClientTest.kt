@@ -1,10 +1,14 @@
 package nz.co.simontong.d1jdbc
 
+import java.net.ServerSocket
+import java.net.URI
+import java.time.Duration
 import java.sql.SQLException
 import java.sql.SQLIntegrityConstraintViolationException
 import java.sql.SQLInvalidAuthorizationSpecException
 import java.sql.SQLNonTransientConnectionException
 import java.sql.SQLSyntaxErrorException
+import java.sql.SQLTimeoutException
 import java.sql.SQLTransientConnectionException
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -187,6 +191,66 @@ class D1ClientTest {
 				+ "or because the database is overloaded. Wait a few minutes and try again.",
 			error.message,
 		)
+		assertEquals("08001", error.sqlState)
+	}
+
+	@Test
+	fun `reports a Cloudflare outage as a temporary connection error`() {
+		server.respond(502, "<html>Bad gateway</html>")
+
+		val error = assertFailsWith<SQLTransientConnectionException> {
+			client.execute(listOf(D1Statement("select 1")))
+		}
+
+		assertEquals("Cloudflare's API failed with HTTP 502. Try again shortly.", error.message)
+		assertEquals("08001", error.sqlState)
+	}
+
+	@Test
+	fun `reports a reply it cannot read as a connection error`() {
+		server.respond(200, "<html>not json</html>")
+
+		val error = assertFailsWith<SQLNonTransientConnectionException> {
+			client.execute(listOf(D1Statement("select 1")))
+		}
+
+		assertEquals("Cloudflare sent a reply the driver could not read (HTTP 200).", error.message)
+		assertEquals("08000", error.sqlState)
+	}
+
+	@Test
+	fun `gives up when Cloudflare takes too long`() {
+		server.respond(200, "{}", delayMillis = 2_000)
+		val impatientClient = D1Client(
+			accountId = "acc123",
+			databaseId = "db456",
+			apiToken = "secret-token",
+			baseUri = server.baseUri,
+			requestTimeout = Duration.ofMillis(200),
+		)
+
+		val error = assertFailsWith<SQLTimeoutException> {
+			impatientClient.execute(listOf(D1Statement("select 1")))
+		}
+
+		assertEquals("Cloudflare did not reply within 0.2 seconds.", error.message)
+	}
+
+	@Test
+	fun `reports an unreachable API as a temporary connection error`() {
+		val closedPort = ServerSocket(0).use { it.localPort }
+		val offlineClient = D1Client(
+			accountId = "acc123",
+			databaseId = "db456",
+			apiToken = "secret-token",
+			baseUri = URI.create("http://127.0.0.1:$closedPort/client/v4"),
+		)
+
+		val error = assertFailsWith<SQLTransientConnectionException> {
+			offlineClient.execute(listOf(D1Statement("select 1")))
+		}
+
+		assertEquals("Could not reach Cloudflare's API. Check your network connection.", error.message)
 		assertEquals("08001", error.sqlState)
 	}
 }
