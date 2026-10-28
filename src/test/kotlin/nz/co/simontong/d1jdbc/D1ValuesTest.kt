@@ -1,12 +1,19 @@
 package nz.co.simontong.d1jdbc
 
+import java.math.BigDecimal
+import java.math.BigInteger
 import java.sql.Date
 import java.sql.ParameterMetaData
 import java.sql.SQLException
+import java.sql.SQLFeatureNotSupportedException
 import java.sql.Time
 import java.sql.Timestamp
 import java.sql.Types
 import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
+import java.time.OffsetDateTime
 import java.util.Calendar
 import java.util.TimeZone
 import kotlin.test.AfterTest
@@ -133,6 +140,85 @@ class D1ValuesTest {
 			"""),
 			sentJson(),
 		)
+	}
+
+	/** Checks that setObject sends each Java type the same way as its own setter. */
+	@Test
+	fun `sends each Java type through setObject`() {
+		server.respondWithRows(changes = 1)
+		val values = listOf<Any?>(
+			42,
+			7L,
+			BigInteger("-9223372036854775808"),
+			true,
+			BigInteger("123456789012345678901234567890"),
+			2.5,
+			1.5f,
+			BigDecimal("1.10"),
+			"text",
+			'c',
+			byteArrayOf(9),
+			null,
+			LocalDate.parse("2026-10-29"),
+			LocalTime.parse("10:11:12.5"),
+			LocalDateTime.parse("2026-10-29T10:11:12"),
+			Instant.parse("2026-10-29T10:11:12Z"),
+			OffsetDateTime.parse("2026-10-29T10:11:12+13:00"),
+		)
+
+		server.connect().use { connection ->
+			val statement = connection.prepareStatement("select " + values.joinToString(", ") { "?" })
+			values.forEachIndexed { index, value -> statement.setObject(index + 1, value) }
+			statement.execute()
+		}
+
+		assertEquals(
+			Json.parseToJsonElement("""
+				{"sql":"select cast(?1 as integer), cast(?2 as integer), cast(?3 as integer), cast(?4 as integer), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?",
+				"params":["42","7","-9223372036854775808","1",123456789012345678901234567890,2.5,1.5,1.10,"text","c",[9],null,
+				"2026-10-29","10:11:12.5","2026-10-29 10:11:12","2026-10-29 10:11:12","2026-10-29 10:11:12+13:00"]}
+			"""),
+			sentJson(),
+		)
+	}
+
+	/** Checks that setObject with a target SQL type converts the value to that type first. */
+	@Test
+	fun `converts values to the target SQL type`() {
+		server.respondWithRows(changes = 1)
+
+		server.connect().use { connection ->
+			val statement = connection.prepareStatement("select ?, ?, ?, ?, ?, ?")
+			statement.setObject(1, "5", Types.INTEGER)
+			statement.setObject(2, 3, Types.VARCHAR)
+			statement.setObject(3, "2.5", Types.DOUBLE)
+			statement.setObject(4, "true", Types.BOOLEAN)
+			statement.setObject(5, 1.5, Types.DECIMAL, 2)
+			statement.setObject(6, null, Types.BLOB)
+			statement.execute()
+
+			val error = assertFailsWith<SQLException> { statement.setObject(1, "five", Types.INTEGER) }
+			assertEquals("Parameter 1 can't be sent as INTEGER: five", error.message)
+		}
+
+		assertEquals(
+			Json.parseToJsonElement("""
+				{"sql":"select cast(?1 as integer), ?, ?, cast(?4 as integer), ?, ?","params":["5","3",2.5,"1",1.5,null]}
+			"""),
+			sentJson(),
+		)
+	}
+
+	/** Checks that setObject names a Java type the driver can't send. */
+	@Test
+	fun `names a Java type setObject can't send`() {
+		server.connect().use { connection ->
+			val statement = connection.prepareStatement("select ?")
+
+			val error = assertFailsWith<SQLFeatureNotSupportedException> { statement.setObject(1, Any()) }
+
+			assertEquals("Not supported by the D1 driver: Sending java.lang.Object values.", error.message)
+		}
 	}
 
 	/** Checks that the driver says how many values the SQL needs, without asking D1. */

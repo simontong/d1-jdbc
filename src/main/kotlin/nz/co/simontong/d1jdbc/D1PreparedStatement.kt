@@ -3,11 +3,13 @@ package nz.co.simontong.d1jdbc
 import java.io.InputStream
 import java.io.Reader
 import java.math.BigDecimal
+import java.math.BigInteger
 import java.net.URL
 import java.sql.Array as SqlArray
 import java.sql.Blob
 import java.sql.Clob
 import java.sql.Date
+import java.sql.JDBCType
 import java.sql.NClob
 import java.sql.ParameterMetaData
 import java.sql.PreparedStatement
@@ -17,10 +19,17 @@ import java.sql.ResultSetMetaData
 import java.sql.RowId
 import java.sql.SQLDataException
 import java.sql.SQLException
+import java.sql.SQLFeatureNotSupportedException
 import java.sql.SQLXML
 import java.sql.Time
 import java.sql.Timestamp
+import java.sql.Types
 import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
 import java.util.Calendar
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -251,7 +260,7 @@ class D1PreparedStatement(
 	 */
 	override fun setBigDecimal(parameterIndex: Int, x: BigDecimal?) {
 		if (x == null) {
-			setNull(parameterIndex, java.sql.Types.DECIMAL)
+			setNull(parameterIndex, Types.DECIMAL)
 			return
 		}
 		bindDecimal(parameterIndex, x)
@@ -281,7 +290,7 @@ class D1PreparedStatement(
 	 */
 	override fun setBytes(parameterIndex: Int, x: ByteArray?) {
 		if (x == null) {
-			setNull(parameterIndex, java.sql.Types.BLOB)
+			setNull(parameterIndex, Types.BLOB)
 			return
 		}
 		bind(parameterIndex, BoundValue(JsonArray(x.map { JsonPrimitive(it.toInt() and 0xFF) })))
@@ -358,15 +367,165 @@ class D1PreparedStatement(
 		setString(parameterIndex, sqlDateTime(x.toInstant().atZone(cal.timeZone.toZoneId()).toLocalDateTime()))
 	}
 
-	/** Not supported yet. */
-	override fun setObject(parameterIndex: Int, x: Any?) = throw notSupported("setObject")
+	/**
+	 * Stores a value using the setter that matches its Java type.
+	 *
+	 * @param parameterIndex parameter number
+	 * @param x the value, or null for SQL NULL
+	 * @throws SQLFeatureNotSupportedException for a Java type D1 can't store
+	 */
+	override fun setObject(parameterIndex: Int, x: Any?) {
+		when (x) {
+			null -> setNull(parameterIndex, Types.NULL)
+			is Byte, is Short, is Int, is Long -> setLong(parameterIndex, x.toLong())
+			is BigInteger -> setBigInteger(parameterIndex, x)
+			is Boolean -> setBoolean(parameterIndex, x)
+			is Float, is Double -> bindDecimal(parameterIndex, x)
+			is BigDecimal -> setBigDecimal(parameterIndex, x)
+			is String -> setString(parameterIndex, x)
+			is Char -> setString(parameterIndex, x.toString())
+			is ByteArray -> setBytes(parameterIndex, x)
+			is Date -> setDate(parameterIndex, x)
+			is Time -> setTime(parameterIndex, x)
+			is Timestamp -> setTimestamp(parameterIndex, x)
+			is LocalDate -> setString(parameterIndex, sqlDate(x))
+			is LocalTime -> setString(parameterIndex, sqlTime(x))
+			is LocalDateTime -> setString(parameterIndex, sqlDateTime(x))
+			is Instant -> setString(parameterIndex, sqlDateTime(LocalDateTime.ofInstant(x, ZoneOffset.UTC)))
+			is OffsetDateTime -> setString(parameterIndex, sqlDateTime(x.toLocalDateTime()) + x.offset.id)
+			else -> throw notSupported("Sending ${x.javaClass.name} values")
+		}
+	}
 
-	/** Not supported yet. */
-	override fun setObject(parameterIndex: Int, x: Any?, targetSqlType: Int) = throw notSupported("setObject")
+	/**
+	 * Stores a whole number, or a decimal when it's too big for SQLite's 64-bit integers.
+	 *
+	 * @param parameterIndex parameter number
+	 * @param x the value
+	 */
+	private fun setBigInteger(parameterIndex: Int, x: BigInteger) {
+		// SQLite's cast clamps bigger values, and it reads a literal that big as a decimal too.
+		if (x.bitLength() < 64) {
+			setLong(parameterIndex, x.toLong())
+			return
+		}
+		bindDecimal(parameterIndex, x)
+	}
 
-	/** Not supported yet. */
+	/**
+	 * Stores a value after converting it to the target SQL type.
+	 *
+	 * @param parameterIndex parameter number
+	 * @param x the value, or null for SQL NULL
+	 * @param targetSqlType a [Types] constant
+	 * @throws SQLDataException when the value can't be converted
+	 */
+	override fun setObject(parameterIndex: Int, x: Any?, targetSqlType: Int) {
+		if (x == null) {
+			setNull(parameterIndex, targetSqlType)
+			return
+		}
+
+		try {
+			when (targetSqlType) {
+				Types.TINYINT, Types.SMALLINT, Types.INTEGER, Types.BIGINT -> {
+					setBigInteger(parameterIndex, decimalOf(x).toBigIntegerExact())
+				}
+
+				Types.BOOLEAN, Types.BIT -> {
+					setBoolean(parameterIndex, booleanOf(x))
+				}
+
+				Types.REAL, Types.FLOAT, Types.DOUBLE, Types.DECIMAL, Types.NUMERIC -> {
+					bindDecimal(parameterIndex, decimalOf(x))
+				}
+
+				Types.CHAR, Types.VARCHAR, Types.LONGVARCHAR, Types.NCHAR, Types.NVARCHAR, Types.LONGNVARCHAR -> {
+					setTextOf(parameterIndex, x)
+				}
+
+				else -> {
+					setObject(parameterIndex, x)
+				}
+			}
+		} catch (error: ArithmeticException) {
+			throw conversionError(parameterIndex, x, targetSqlType, error)
+		} catch (error: NumberFormatException) {
+			throw conversionError(parameterIndex, x, targetSqlType, error)
+		}
+	}
+
+	/**
+	 * Stores a value after converting it to the target SQL type. The scale is ignored, as D1 stores decimals as REAL.
+	 *
+	 * @param parameterIndex parameter number
+	 * @param x the value, or null for SQL NULL
+	 * @param targetSqlType a [Types] constant
+	 * @param scaleOrLength digits after the point, or length, ignored
+	 * @throws SQLDataException when the value can't be converted
+	 */
 	override fun setObject(parameterIndex: Int, x: Any?, targetSqlType: Int, scaleOrLength: Int) {
-		throw notSupported("setObject")
+		setObject(parameterIndex, x, targetSqlType)
+	}
+
+	/**
+	 * Reads a number, boolean or text as a decimal.
+	 *
+	 * @param x the value
+	 * @return the decimal
+	 * @throws NumberFormatException when it isn't a number
+	 */
+	private fun decimalOf(x: Any): BigDecimal {
+		return when (x) {
+			is BigDecimal -> x
+			is Boolean -> if (x) BigDecimal.ONE else BigDecimal.ZERO
+			else -> BigDecimal(x.toString().trim())
+		}
+	}
+
+	/**
+	 * Reads a boolean, number or text as a boolean.
+	 *
+	 * @param x the value
+	 * @return the boolean
+	 * @throws NumberFormatException when it's neither a boolean nor a number
+	 */
+	private fun booleanOf(x: Any): Boolean {
+		val text = x.toString().trim()
+		return when {
+			x is Boolean -> x
+			text.equals("true", ignoreCase = true) -> true
+			text.equals("false", ignoreCase = true) -> false
+			else -> BigDecimal(text).signum() != 0
+		}
+	}
+
+	/**
+	 * Stores a value as text, keeping SQLite's formats for dates and times.
+	 *
+	 * @param parameterIndex parameter number
+	 * @param x the value
+	 */
+	private fun setTextOf(parameterIndex: Int, x: Any) {
+		if (x is java.util.Date || x is java.time.temporal.Temporal) {
+			setObject(parameterIndex, x)
+			return
+		}
+		setString(parameterIndex, if (x is BigDecimal) x.toPlainString() else x.toString())
+	}
+
+	/**
+	 * Builds the error for a value that can't be converted to the target SQL type.
+	 *
+	 * @param parameterIndex parameter number
+	 * @param x the value
+	 * @param targetSqlType a [Types] constant
+	 * @param cause the conversion failure
+	 * @return the exception to throw
+	 */
+	private fun conversionError(parameterIndex: Int, x: Any, targetSqlType: Int, cause: Throwable): SQLException {
+		val typeName = JDBCType.entries.firstOrNull { it.vendorTypeNumber == targetSqlType }?.name ?: "type $targetSqlType"
+		return SQLDataException("Parameter $parameterIndex can't be sent as $typeName: $x", "22018", cause)
 	}
 
 	/** Not supported yet. */
