@@ -238,6 +238,40 @@ class D1ValuesTest {
 		)
 	}
 
+	/** Checks that a column's type comes from all its values, so decimals read alike in every row. */
+	@Test
+	fun `reads a column as one type based on all its values`() {
+		server.respondWithRows(
+			columns = """["whole","decimal","text","bytes","mixed","empty"]""",
+			rows = """[[1,1,"a",[1],1,null],[2,2.5,"b",[2],"x",null]]""",
+		)
+
+		server.connect().use { connection ->
+			val rows = connection.createStatement().executeQuery("select * from t")
+			val metaData = rows.metaData
+
+			assertEquals(
+				listOf(Types.BIGINT, Types.DOUBLE, Types.VARCHAR, Types.BLOB, Types.OTHER, Types.NULL),
+				(1..6).map { metaData.getColumnType(it) },
+			)
+			assertEquals(
+				listOf("INTEGER", "REAL", "TEXT", "BLOB", "ANY", "NULL"),
+				(1..6).map { metaData.getColumnTypeName(it) },
+			)
+			assertEquals(
+				listOf("java.lang.Long", "java.lang.Double", "java.lang.String", "[B", "java.lang.Object", "java.lang.Object"),
+				(1..6).map { metaData.getColumnClassName(it) },
+			)
+			assertTrue(rows.next())
+			assertEquals(1L, rows.getObject(1))
+			assertEquals(1.0, rows.getObject(2))
+			assertEquals(1L, rows.getObject(5))
+			assertTrue(rows.next())
+			assertEquals(2.5, rows.getObject(2))
+			assertEquals("x", rows.getObject(5))
+		}
+	}
+
 	/** Checks that setObject names a Java type the driver can't send. */
 	@Test
 	fun `names a Java type setObject can't send`() {

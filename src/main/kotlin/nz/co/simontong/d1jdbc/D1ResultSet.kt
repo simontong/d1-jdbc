@@ -44,6 +44,7 @@ class D1ResultSet(
 	private var rowIndex = -1
 	private var closed = false
 	private var lastWasNull = false
+	private val kinds by lazy { columns.indices.map { index -> columnKindOf(rows.map { it[index] }) } }
 
 	/**
 	 * Throws when the result set is closed.
@@ -246,31 +247,20 @@ class D1ResultSet(
 	override fun getNString(columnIndex: Int): String? = getString(columnIndex)
 
 	/**
-	 * Reads the value as the closest Java type.
+	 * Reads the value as the Java type of its column, so every row gives the same class.
 	 *
 	 * @param columnIndex column number
 	 * @return Long, Double, String or ByteArray, or null for SQL NULL
 	 */
 	override fun getObject(columnIndex: Int): Any? {
-		return when (val element = value(columnIndex)) {
-			null -> null
-			is JsonArray -> getBytes(columnIndex)
-			is JsonPrimitive -> numberOrText(element)
-			else -> element.toString()
+		val element = value(columnIndex) ?: return null
+		val kind = kinds[columnIndex - 1].takeIf { it != ColumnKind.ANY } ?: valueKindOf(element)
+		return when (kind) {
+			ColumnKind.INTEGER -> getLong(columnIndex)
+			ColumnKind.REAL -> getDouble(columnIndex)
+			ColumnKind.BLOB -> getBytes(columnIndex)
+			else -> getString(columnIndex)
 		}
-	}
-
-	/**
-	 * Turns a JSON value into a Long, Double or String.
-	 *
-	 * @param element JSON value
-	 * @return the matching Java value
-	 */
-	private fun numberOrText(element: JsonPrimitive): Any {
-		if (element.isString) {
-			return element.content
-		}
-		return element.content.toLongOrNull() ?: element.content.toDouble()
 	}
 
 	/** Not supported yet. */
@@ -427,7 +417,7 @@ class D1ResultSet(
 	/** @return column details for these rows */
 	override fun getMetaData(): ResultSetMetaData {
 		checkOpen()
-		return D1ResultSetMetaData(columns, rows)
+		return D1ResultSetMetaData(columns, kinds)
 	}
 
 	/** @return true when the cursor is before the first row and there are rows */

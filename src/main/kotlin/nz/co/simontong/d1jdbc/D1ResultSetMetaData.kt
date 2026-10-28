@@ -2,21 +2,16 @@ package nz.co.simontong.d1jdbc
 
 import java.sql.ResultSetMetaData
 import java.sql.SQLException
-import java.sql.Types
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * Column details for rows returned by D1.
  *
  * @param columns column names in order
- * @param rows row values, used to guess each column's type
+ * @param kinds each column's type, worked out from its values
  */
-class D1ResultSetMetaData(
+class D1ResultSetMetaData internal constructor(
 	private val columns: List<String>,
-	private val rows: List<List<JsonElement>>,
+	private val kinds: List<ColumnKind>,
 ) : ResultSetMetaData {
 	/**
 	 * Throws when the column number is out of range.
@@ -31,21 +26,15 @@ class D1ResultSetMetaData(
 	}
 
 	/**
-	 * Guesses a column's SQL type from its first non-null value.
+	 * Returns a column's type.
 	 *
 	 * @param column column number
-	 * @return a [Types] constant
+	 * @return the column's kind
+	 * @throws SQLException when the column doesn't exist
 	 */
-	private fun guessedType(column: Int): Int {
+	private fun kind(column: Int): ColumnKind {
 		checkColumn(column)
-		val sample = rows.asSequence().map { it[column - 1] }.firstOrNull { it !is JsonNull }
-		return when {
-			sample is JsonArray -> Types.BLOB
-			sample is JsonPrimitive && sample.isString -> Types.VARCHAR
-			sample is JsonPrimitive && sample.content.toLongOrNull() != null -> Types.BIGINT
-			sample is JsonPrimitive -> Types.DOUBLE
-			else -> Types.VARCHAR
-		}
+		return kinds[column - 1]
 	}
 
 	/** @return number of columns */
@@ -58,7 +47,7 @@ class D1ResultSetMetaData(
 	}
 
 	/** @return true for text columns */
-	override fun isCaseSensitive(column: Int): Boolean = guessedType(column) == Types.VARCHAR
+	override fun isCaseSensitive(column: Int): Boolean = kind(column) == ColumnKind.TEXT
 
 	/** @return true, as any column can be used in a WHERE clause */
 	override fun isSearchable(column: Int): Boolean {
@@ -79,7 +68,7 @@ class D1ResultSetMetaData(
 	}
 
 	/** @return true for number columns */
-	override fun isSigned(column: Int): Boolean = guessedType(column) in setOf(Types.BIGINT, Types.DOUBLE)
+	override fun isSigned(column: Int): Boolean = kind(column) in setOf(ColumnKind.INTEGER, ColumnKind.REAL)
 
 	/** @return a display width wide enough for most values */
 	override fun getColumnDisplaySize(column: Int): Int {
@@ -126,18 +115,11 @@ class D1ResultSetMetaData(
 		return ""
 	}
 
-	/** @return the guessed [Types] constant */
-	override fun getColumnType(column: Int): Int = guessedType(column)
+	/** @return the [java.sql.Types] constant for the column's values */
+	override fun getColumnType(column: Int): Int = kind(column).sqlType
 
-	/** @return the SQLite type name matching the guessed type */
-	override fun getColumnTypeName(column: Int): String {
-		return when (guessedType(column)) {
-			Types.BLOB -> "BLOB"
-			Types.BIGINT -> "INTEGER"
-			Types.DOUBLE -> "REAL"
-			else -> "TEXT"
-		}
-	}
+	/** @return the SQLite type name for the column's values */
+	override fun getColumnTypeName(column: Int): String = kind(column).typeName
 
 	/** @return true, as these result sets can't be changed */
 	override fun isReadOnly(column: Int): Boolean {
@@ -157,15 +139,8 @@ class D1ResultSetMetaData(
 		return false
 	}
 
-	/** @return the Java class [D1ResultSet.getObject] returns for the guessed type */
-	override fun getColumnClassName(column: Int): String {
-		return when (guessedType(column)) {
-			Types.BLOB -> "[B"
-			Types.BIGINT -> "java.lang.Long"
-			Types.DOUBLE -> "java.lang.Double"
-			else -> "java.lang.String"
-		}
-	}
+	/** @return the Java class [D1ResultSet.getObject] returns for the column */
+	override fun getColumnClassName(column: Int): String = kind(column).className
 
 	/**
 	 * Returns this object as the given interface.
