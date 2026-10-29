@@ -6,6 +6,7 @@ import java.sql.Types
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * Tests schema browsing through JDBC metadata, against a SQLite database standing in for D1.
@@ -37,6 +38,8 @@ class D1SchemaTest {
 	private val NO_ACTION = DatabaseMetaData.importedKeyNoAction.toLong()
 	private val CASCADE = DatabaseMetaData.importedKeyCascade.toLong()
 	private val SET_NULL = DatabaseMetaData.importedKeySetNull.toLong()
+	private val NOT_PSEUDO = DatabaseMetaData.bestRowNotPseudo.toLong()
+	private val PSEUDO = DatabaseMetaData.bestRowPseudo.toLong()
 
 	/** Stops the stub server and closes the database after each test. */
 	@AfterTest
@@ -182,6 +185,81 @@ class D1SchemaTest {
 				listOf(listOf("parent", "id", "remark", "pid", 1L, SET_NULL, NO_ACTION)),
 				read(connection.metaData.getCrossReference(null, null, "parent", null, null, "remark"), *columns),
 			)
+		}
+	}
+
+	/** Checks that browsing the schema reuses one load, and a schema change through the driver reloads it. */
+	@Test
+	fun `reuses the loaded schema until something changes it`() {
+		server.connect().use { connection ->
+			val metaData = connection.metaData
+			metaData.getTables(null, null, "%", null)
+			for (table in listOf("parent", "child", "v")) {
+				metaData.getColumns(null, null, table, null)
+				metaData.getPrimaryKeys(null, null, table)
+				metaData.getIndexInfo(null, null, table, false, true)
+				metaData.getImportedKeys(null, null, table)
+			}
+			assertEquals(2, server.requests.size)
+
+			connection.createStatement().execute("select 1")
+			metaData.getTables(null, null, "%", null)
+			assertEquals(3, server.requests.size)
+
+			connection.createStatement().execute("create table added (x)")
+			assertEquals(
+				listOf(listOf("added")),
+				read(metaData.getTables(null, null, "added", null), "TABLE_NAME"),
+			)
+			assertEquals(6, server.requests.size)
+		}
+
+		server.connect(extra = mapOf("schemaCacheSeconds" to "0")).use { connection ->
+			connection.metaData.getTables(null, null, "%", null)
+			connection.metaData.getTables(null, null, "%", null)
+		}
+		assertEquals(10, server.requests.size)
+	}
+
+	/** Checks that the driver lists SQLite's five storage types, sorted by JDBC type. */
+	@Test
+	fun `lists SQLite's storage types`() {
+		server.connect().use { connection ->
+			val types = connection.metaData.typeInfo
+
+			assertEquals(18, types.metaData.columnCount)
+			assertEquals(
+				listOf(
+					listOf("INTEGER", BIGINT, null, null, true),
+					listOf("NUMERIC", NUMERIC, null, null, false),
+					listOf("REAL", DOUBLE, null, null, false),
+					listOf("TEXT", VARCHAR, "'", "'", false),
+					listOf("BLOB", BLOB, "X'", "'", false),
+				),
+				read(types, "TYPE_NAME", "DATA_TYPE", "LITERAL_PREFIX", "LITERAL_SUFFIX", "AUTO_INCREMENT"),
+			)
+		}
+		assertTrue(server.requests.isEmpty())
+	}
+
+	/** Checks that the best row identifier is the primary key, or the row ID when there is none. */
+	@Test
+	fun `names the columns that identify a row`() {
+		database.setUp("create table loose (x text)")
+
+		server.connect().use { connection ->
+			val metaData = connection.metaData
+			val scope = DatabaseMetaData.bestRowSession
+
+			assertEquals(
+				listOf(listOf("a", BIGINT, NOT_PSEUDO), listOf("b", BIGINT, NOT_PSEUDO)),
+				read(metaData.getBestRowIdentifier(null, null, "child", scope, true), "COLUMN_NAME", "DATA_TYPE", "PSEUDO_COLUMN"),
+			)
+			assertEquals(
+				listOf(listOf("rowid", BIGINT, PSEUDO)),
+				read(metaData.getBestRowIdentifier(null, null, "loose", scope, true), "COLUMN_NAME", "DATA_TYPE", "PSEUDO_COLUMN"),
+			)
+			assertEquals(emptyList(), read(metaData.getBestRowIdentifier(null, null, "v", scope, true), "COLUMN_NAME"))
 		}
 	}
 

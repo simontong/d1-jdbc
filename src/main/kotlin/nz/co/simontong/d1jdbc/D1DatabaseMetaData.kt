@@ -351,6 +351,90 @@ class D1DatabaseMetaData(
 		return foreignKeys(parentCatalog, parentSchema, parentTable, foreignTable)
 	}
 
+	/**
+	 * Lists SQLite's storage types, which every declared type maps to.
+	 *
+	 * @return one row per type, sorted by JDBC type
+	 */
+	override fun getTypeInfo(): ResultSet {
+		// Text and blobs can be as big as D1's 2 MB row limit.
+		val rows = listOf(
+			typeRow("INTEGER", Types.BIGINT, 19, null, null, autoIncrement = true),
+			typeRow("NUMERIC", Types.NUMERIC, 19, null, null, autoIncrement = false),
+			typeRow("REAL", Types.DOUBLE, 15, null, null, autoIncrement = false),
+			typeRow("TEXT", Types.VARCHAR, 2_000_000, "'", "'", autoIncrement = false),
+			typeRow("BLOB", Types.BLOB, 2_000_000, "X'", "'", autoIncrement = false),
+		)
+		return rowsOf(TYPE_COLUMNS, rows)
+	}
+
+	/**
+	 * Builds one row of [getTypeInfo].
+	 *
+	 * @param name type name
+	 * @param sqlType [Types] constant
+	 * @param precision largest size or precision
+	 * @param prefix text before a literal, or null
+	 * @param suffix text after a literal, or null
+	 * @param autoIncrement whether a column of this type can fill itself in
+	 * @return the row values
+	 */
+	private fun typeRow(
+		name: String,
+		sqlType: Int,
+		precision: Int,
+		prefix: String?,
+		suffix: String?,
+		autoIncrement: Boolean,
+	): List<Any?> {
+		val numeric = sqlType in setOf(Types.BIGINT, Types.NUMERIC, Types.DOUBLE)
+		return listOf(
+			name, sqlType, precision, prefix, suffix, null, DatabaseMetaData.typeNullable, sqlType == Types.VARCHAR,
+			DatabaseMetaData.typeSearchable, false, false, autoIncrement, null, 0, 0, null, null,
+			if (numeric) 10 else null,
+		)
+	}
+
+	/**
+	 * Names the columns that identify a row, which is the primary key or else the row ID.
+	 *
+	 * @param catalog catalog name, or null
+	 * @param schema schema name, or null
+	 * @param table table name
+	 * @param scope how long the identifier must stay valid, ignored as it never changes
+	 * @param nullable whether nullable columns may be used, ignored
+	 * @return one row per identifying column
+	 * @throws SQLException when D1 reports an error
+	 */
+	override fun getBestRowIdentifier(
+		catalog: String?,
+		schema: String?,
+		table: String?,
+		scope: Int,
+		nullable: Boolean,
+	): ResultSet {
+		val found = table(catalog, schema, table)
+		if (found == null || found.type != "TABLE") {
+			return rowsOf(ROW_ID_COLUMNS, emptyList())
+		}
+		val keys = found.columns.filter { it.primaryKeyPosition > 0 }.sortedBy { it.primaryKeyPosition }
+		if (keys.isEmpty() && !found.withoutRowId) {
+			val rowId = listOf(
+				DatabaseMetaData.bestRowSession, "rowid", Types.BIGINT, "INTEGER", 19, null, 0,
+				DatabaseMetaData.bestRowPseudo,
+			)
+			return rowsOf(ROW_ID_COLUMNS, listOf(rowId))
+		}
+		val rows = keys.map { column ->
+			val type = declaredType(column.declaredType)
+			listOf(
+				DatabaseMetaData.bestRowSession, column.name, type.sqlType, type.name, type.size, null,
+				type.decimalDigits, DatabaseMetaData.bestRowNotPseudo,
+			)
+		}
+		return rowsOf(ROW_ID_COLUMNS, rows)
+	}
+
 	/** @return the one schema D1 has, `main` */
 	override fun getSchemas(): ResultSet {
 		return result(listOf("TABLE_SCHEM", "TABLE_CATALOG"), listOf(listOf(JsonPrimitive(SCHEMA), JsonNull)))
@@ -754,8 +838,6 @@ class D1DatabaseMetaData(
 	/** @return an empty result, filled in once schema browsing is built */
 	override fun getTablePrivileges(p0: String?, p1: String?, p2: String?): ResultSet = emptyResult("TABLE_CAT", "TABLE_SCHEM", "TABLE_NAME", "GRANTOR", "GRANTEE", "PRIVILEGE", "IS_GRANTABLE")
 
-	/** @return an empty result, filled in once schema browsing is built */
-	override fun getBestRowIdentifier(p0: String?, p1: String?, p2: String?, p3: Int, p4: Boolean): ResultSet = emptyResult("SCOPE", "COLUMN_NAME", "DATA_TYPE", "TYPE_NAME", "COLUMN_SIZE", "BUFFER_LENGTH", "DECIMAL_DIGITS", "PSEUDO_COLUMN")
 
 	/** @return an empty result, filled in once schema browsing is built */
 	override fun getVersionColumns(p0: String?, p1: String?, p2: String?): ResultSet = emptyResult("SCOPE", "COLUMN_NAME", "DATA_TYPE", "TYPE_NAME", "COLUMN_SIZE", "BUFFER_LENGTH", "DECIMAL_DIGITS", "PSEUDO_COLUMN")
@@ -764,8 +846,6 @@ class D1DatabaseMetaData(
 
 
 
-	/** @return an empty result, filled in once schema browsing is built */
-	override fun getTypeInfo(): ResultSet = emptyResult("TYPE_NAME", "DATA_TYPE", "PRECISION", "LITERAL_PREFIX", "LITERAL_SUFFIX", "CREATE_PARAMS", "NULLABLE", "CASE_SENSITIVE", "SEARCHABLE", "UNSIGNED_ATTRIBUTE", "FIXED_PREC_SCALE", "AUTO_INCREMENT", "LOCAL_TYPE_NAME", "MINIMUM_SCALE", "MAXIMUM_SCALE", "SQL_DATA_TYPE", "SQL_DATETIME_SUB", "NUM_PREC_RADIX")
 
 
 	/** @return true only for forward-only results */
@@ -909,6 +989,19 @@ class D1DatabaseMetaData(
 			"PKTABLE_CAT", "PKTABLE_SCHEM", "PKTABLE_NAME", "PKCOLUMN_NAME", "FKTABLE_CAT", "FKTABLE_SCHEM",
 			"FKTABLE_NAME", "FKCOLUMN_NAME", "KEY_SEQ", "UPDATE_RULE", "DELETE_RULE", "FK_NAME", "PK_NAME",
 			"DEFERRABILITY",
+		)
+
+		/** Columns of [getTypeInfo], in the order JDBC sets. */
+		val TYPE_COLUMNS = listOf(
+			"TYPE_NAME", "DATA_TYPE", "PRECISION", "LITERAL_PREFIX", "LITERAL_SUFFIX", "CREATE_PARAMS", "NULLABLE",
+			"CASE_SENSITIVE", "SEARCHABLE", "UNSIGNED_ATTRIBUTE", "FIXED_PREC_SCALE", "AUTO_INCREMENT",
+			"LOCAL_TYPE_NAME", "MINIMUM_SCALE", "MAXIMUM_SCALE", "SQL_DATA_TYPE", "SQL_DATETIME_SUB", "NUM_PREC_RADIX",
+		)
+
+		/** Columns of [getBestRowIdentifier], in the order JDBC sets. */
+		val ROW_ID_COLUMNS = listOf(
+			"SCOPE", "COLUMN_NAME", "DATA_TYPE", "TYPE_NAME", "COLUMN_SIZE", "BUFFER_LENGTH", "DECIMAL_DIGITS",
+			"PSEUDO_COLUMN",
 		)
 
 		/** Columns of [getTables], in the order JDBC sets. */
