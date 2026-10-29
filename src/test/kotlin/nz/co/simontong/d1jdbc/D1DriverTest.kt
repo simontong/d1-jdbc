@@ -392,6 +392,20 @@ class D1DriverTest {
 		}
 	}
 
+	/** Checks that the driver reports the version it was built as. */
+	@Test
+	fun `reports the version it was built as`() {
+		val driver = D1Driver()
+		val buildVersion = System.getProperty("d1jdbc.buildVersion")
+
+		connect().use { connection ->
+			val metaData = connection.metaData
+			assertEquals(buildVersion, metaData.driverVersion)
+			assertTrue(buildVersion.startsWith("${metaData.driverMajorVersion}.${metaData.driverMinorVersion}."))
+		}
+		assertTrue(buildVersion.startsWith("${driver.majorVersion}.${driver.minorVersion}."))
+	}
+
 	/** Checks that the driver describes D1 to the IDE. */
 	@Test
 	fun `describes D1 to the IDE`() {

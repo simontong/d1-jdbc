@@ -76,10 +76,10 @@ class D1Driver : Driver {
 	}
 
 	/** @return the driver's major version */
-	override fun getMajorVersion(): Int = 1
+	override fun getMajorVersion(): Int = DRIVER_MAJOR_VERSION
 
 	/** @return the driver's minor version */
-	override fun getMinorVersion(): Int = 0
+	override fun getMinorVersion(): Int = DRIVER_MINOR_VERSION
 
 	/** @return false, as D1 has no transactions and so can't pass the JDBC compliance tests */
 	override fun jdbcCompliant(): Boolean = false
@@ -201,3 +201,14 @@ data class D1Settings(
 		}
 	}
 }
+
+/** The version the driver was built as, read from the jar. */
+internal val DRIVER_VERSION: String = D1Driver::class.java.getResourceAsStream("version.properties")
+	.use { stream -> java.util.Properties().also { it.load(stream) } }
+	.getProperty("version")
+
+/** The first number of [DRIVER_VERSION]. */
+internal val DRIVER_MAJOR_VERSION: Int = DRIVER_VERSION.split(".")[0].toInt()
+
+/** The second number of [DRIVER_VERSION]. */
+internal val DRIVER_MINOR_VERSION: Int = DRIVER_VERSION.split(".").getOrNull(1)?.toIntOrNull() ?: 0

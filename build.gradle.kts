@@ -4,7 +4,8 @@ plugins {
 }
 
 group = "nz.co.simontong"
-version = "0.0.0"
+// Release builds pass -PreleaseVersion=1.2.3, set from the git tag.
+version = providers.gradleProperty("releaseVersion").getOrElse("0.0.0")
 
 kotlin {
 	jvmToolchain(17)
@@ -20,8 +21,18 @@ dependencies {
 	testRuntimeOnly(libs.junit.platform.launcher)
 }
 
+tasks.processResources {
+	val driverVersion = project.version.toString()
+	inputs.property("driverVersion", driverVersion)
+	filesMatching("**/version.properties") {
+		expand("version" to driverVersion)
+	}
+}
+
 tasks.test {
 	useJUnitPlatform()
+	// Lets tests check the driver reports the version it was built as.
+	systemProperty("d1jdbc.buildVersion", project.version.toString())
 }
 
 tasks.shadowJar {

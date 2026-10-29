@@ -503,14 +503,14 @@ class D1DatabaseMetaData(
 	/** @return "D1 JDBC Driver" */
 	override fun getDriverName(): String = "D1 JDBC Driver"
 
-	/** @return "1.0" */
-	override fun getDriverVersion(): String = "1.0"
+	/** @return the version the driver was built as */
+	override fun getDriverVersion(): String = DRIVER_VERSION
 
-	/** @return 1 */
-	override fun getDriverMajorVersion(): Int = 1
+	/** @return the driver's major version */
+	override fun getDriverMajorVersion(): Int = DRIVER_MAJOR_VERSION
 
-	/** @return 0, meaning no limit or unknown */
-	override fun getDriverMinorVersion(): Int = 0
+	/** @return the driver's minor version */
+	override fun getDriverMinorVersion(): Int = DRIVER_MINOR_VERSION
 
 	/** @return false */
 	override fun usesLocalFiles(): Boolean = false
