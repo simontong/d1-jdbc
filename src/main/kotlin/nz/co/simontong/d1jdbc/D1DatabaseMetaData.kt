@@ -245,6 +245,112 @@ class D1DatabaseMetaData(
 		return rowsOf(INDEX_COLUMNS, rows)
 	}
 
+	/**
+	 * Lists foreign key columns, keeping each key's columns together in key order.
+	 *
+	 * @param catalog catalog name, or null
+	 * @param schema schema name, or null
+	 * @param parentTable referenced table name, or null for any
+	 * @param childTable referencing table name, or null for any
+	 * @return the result set
+	 * @throws SQLException when D1 reports an error
+	 */
+	private fun foreignKeys(catalog: String?, schema: String?, parentTable: String?, childTable: String?): ResultSet {
+		if (!catalog.isNullOrEmpty() || (schema != null && !schema.equals(SCHEMA, ignoreCase = true))) {
+			return rowsOf(FOREIGN_KEY_COLUMNS, emptyList())
+		}
+		val schemaTables = connection.schemaCache.get()
+		val rows = mutableListOf<List<Any?>>()
+		val children = schemaTables.tables.filter { childTable == null || it.name.equals(childTable, ignoreCase = true) }
+		for (child in children) {
+			val keys = child.foreignKeys.filter { parentTable == null || it.parentTable.equals(parentTable, ignoreCase = true) }
+			for (key in keys.sortedBy { it.parentTable.lowercase() }) {
+				val parent = schemaTables.table(key.parentTable)
+				// A key with no parent columns refers to the parent's primary key.
+				val parentKey = parent?.columns.orEmpty().filter { it.primaryKeyPosition > 0 }.sortedBy { it.primaryKeyPosition }
+				key.columns.forEachIndexed { position, (from, to) ->
+					rows += listOf(
+						null, SCHEMA, parent?.name ?: key.parentTable, to ?: parentKey.getOrNull(position)?.name,
+						null, SCHEMA, child.name, from, position + 1, ruleOf(key.onUpdate), ruleOf(key.onDelete),
+						null, null, DatabaseMetaData.importedKeyNotDeferrable,
+					)
+				}
+			}
+		}
+		return rowsOf(FOREIGN_KEY_COLUMNS, rows)
+	}
+
+	/**
+	 * Turns a SQLite foreign key action into its JDBC constant.
+	 *
+	 * @param action action as `pragma foreign_key_list` writes it
+	 * @return a [DatabaseMetaData] importedKey constant
+	 */
+	private fun ruleOf(action: String): Int {
+		return when (action.uppercase()) {
+			"CASCADE" -> DatabaseMetaData.importedKeyCascade
+			"RESTRICT" -> DatabaseMetaData.importedKeyRestrict
+			"SET NULL" -> DatabaseMetaData.importedKeySetNull
+			"SET DEFAULT" -> DatabaseMetaData.importedKeySetDefault
+			else -> DatabaseMetaData.importedKeyNoAction
+		}
+	}
+
+	/**
+	 * Lists the foreign keys a table holds.
+	 *
+	 * @param catalog catalog name, or null
+	 * @param schema schema name, or null
+	 * @param table referencing table name
+	 * @return one row per key column
+	 * @throws SQLException when D1 reports an error
+	 */
+	override fun getImportedKeys(catalog: String?, schema: String?, table: String?): ResultSet {
+		return foreignKeys(catalog, schema, null, table ?: return rowsOf(FOREIGN_KEY_COLUMNS, emptyList()))
+	}
+
+	/**
+	 * Lists the foreign keys that refer to a table.
+	 *
+	 * @param catalog catalog name, or null
+	 * @param schema schema name, or null
+	 * @param table referenced table name
+	 * @return one row per key column
+	 * @throws SQLException when D1 reports an error
+	 */
+	override fun getExportedKeys(catalog: String?, schema: String?, table: String?): ResultSet {
+		return foreignKeys(catalog, schema, table ?: return rowsOf(FOREIGN_KEY_COLUMNS, emptyList()), null)
+	}
+
+	/**
+	 * Lists the foreign keys from one table to another.
+	 *
+	 * @param parentCatalog referenced table's catalog, or null
+	 * @param parentSchema referenced table's schema, or null
+	 * @param parentTable referenced table name
+	 * @param foreignCatalog referencing table's catalog, or null
+	 * @param foreignSchema referencing table's schema, or null
+	 * @param foreignTable referencing table name
+	 * @return one row per key column
+	 * @throws SQLException when D1 reports an error
+	 */
+	override fun getCrossReference(
+		parentCatalog: String?,
+		parentSchema: String?,
+		parentTable: String?,
+		foreignCatalog: String?,
+		foreignSchema: String?,
+		foreignTable: String?,
+	): ResultSet {
+		if (parentTable == null || foreignTable == null || !foreignCatalog.isNullOrEmpty()) {
+			return rowsOf(FOREIGN_KEY_COLUMNS, emptyList())
+		}
+		if (foreignSchema != null && !foreignSchema.equals(SCHEMA, ignoreCase = true)) {
+			return rowsOf(FOREIGN_KEY_COLUMNS, emptyList())
+		}
+		return foreignKeys(parentCatalog, parentSchema, parentTable, foreignTable)
+	}
+
 	/** @return the one schema D1 has, `main` */
 	override fun getSchemas(): ResultSet {
 		return result(listOf("TABLE_SCHEM", "TABLE_CATALOG"), listOf(listOf(JsonPrimitive(SCHEMA), JsonNull)))
@@ -655,14 +761,8 @@ class D1DatabaseMetaData(
 	override fun getVersionColumns(p0: String?, p1: String?, p2: String?): ResultSet = emptyResult("SCOPE", "COLUMN_NAME", "DATA_TYPE", "TYPE_NAME", "COLUMN_SIZE", "BUFFER_LENGTH", "DECIMAL_DIGITS", "PSEUDO_COLUMN")
 
 
-	/** @return an empty result, filled in once schema browsing is built */
-	override fun getImportedKeys(p0: String?, p1: String?, p2: String?): ResultSet = emptyResult("PKTABLE_CAT", "PKTABLE_SCHEM", "PKTABLE_NAME", "PKCOLUMN_NAME", "FKTABLE_CAT", "FKTABLE_SCHEM", "FKTABLE_NAME", "FKCOLUMN_NAME", "KEY_SEQ", "UPDATE_RULE", "DELETE_RULE", "FK_NAME", "PK_NAME", "DEFERRABILITY")
 
-	/** @return an empty result, filled in once schema browsing is built */
-	override fun getExportedKeys(p0: String?, p1: String?, p2: String?): ResultSet = emptyResult("PKTABLE_CAT", "PKTABLE_SCHEM", "PKTABLE_NAME", "PKCOLUMN_NAME", "FKTABLE_CAT", "FKTABLE_SCHEM", "FKTABLE_NAME", "FKCOLUMN_NAME", "KEY_SEQ", "UPDATE_RULE", "DELETE_RULE", "FK_NAME", "PK_NAME", "DEFERRABILITY")
 
-	/** @return an empty result, filled in once schema browsing is built */
-	override fun getCrossReference(p0: String?, p1: String?, p2: String?, p3: String?, p4: String?, p5: String?): ResultSet = emptyResult("PKTABLE_CAT", "PKTABLE_SCHEM", "PKTABLE_NAME", "PKCOLUMN_NAME", "FKTABLE_CAT", "FKTABLE_SCHEM", "FKTABLE_NAME", "FKCOLUMN_NAME", "KEY_SEQ", "UPDATE_RULE", "DELETE_RULE", "FK_NAME", "PK_NAME", "DEFERRABILITY")
 
 	/** @return an empty result, filled in once schema browsing is built */
 	override fun getTypeInfo(): ResultSet = emptyResult("TYPE_NAME", "DATA_TYPE", "PRECISION", "LITERAL_PREFIX", "LITERAL_SUFFIX", "CREATE_PARAMS", "NULLABLE", "CASE_SENSITIVE", "SEARCHABLE", "UNSIGNED_ATTRIBUTE", "FIXED_PREC_SCALE", "AUTO_INCREMENT", "LOCAL_TYPE_NAME", "MINIMUM_SCALE", "MAXIMUM_SCALE", "SQL_DATA_TYPE", "SQL_DATETIME_SUB", "NUM_PREC_RADIX")
@@ -802,6 +902,13 @@ class D1DatabaseMetaData(
 		val INDEX_COLUMNS = listOf(
 			"TABLE_CAT", "TABLE_SCHEM", "TABLE_NAME", "NON_UNIQUE", "INDEX_QUALIFIER", "INDEX_NAME", "TYPE",
 			"ORDINAL_POSITION", "COLUMN_NAME", "ASC_OR_DESC", "CARDINALITY", "PAGES", "FILTER_CONDITION",
+		)
+
+		/** Columns of the foreign key methods, in the order JDBC sets. */
+		val FOREIGN_KEY_COLUMNS = listOf(
+			"PKTABLE_CAT", "PKTABLE_SCHEM", "PKTABLE_NAME", "PKCOLUMN_NAME", "FKTABLE_CAT", "FKTABLE_SCHEM",
+			"FKTABLE_NAME", "FKCOLUMN_NAME", "KEY_SEQ", "UPDATE_RULE", "DELETE_RULE", "FK_NAME", "PK_NAME",
+			"DEFERRABILITY",
 		)
 
 		/** Columns of [getTables], in the order JDBC sets. */

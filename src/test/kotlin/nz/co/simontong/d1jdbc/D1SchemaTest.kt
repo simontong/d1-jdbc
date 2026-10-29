@@ -34,6 +34,9 @@ class D1SchemaTest {
 	private val DOUBLE = Types.DOUBLE.toLong()
 	private val NUMERIC = Types.NUMERIC.toLong()
 	private val OTHER_INDEX = DatabaseMetaData.tableIndexOther.toLong()
+	private val NO_ACTION = DatabaseMetaData.importedKeyNoAction.toLong()
+	private val CASCADE = DatabaseMetaData.importedKeyCascade.toLong()
+	private val SET_NULL = DatabaseMetaData.importedKeySetNull.toLong()
 
 	/** Stops the stub server and closes the database after each test. */
 	@AfterTest
@@ -144,6 +147,40 @@ class D1SchemaTest {
 			assertEquals(
 				listOf(listOf("sqlite_autoindex_child_1"), listOf("sqlite_autoindex_child_1")),
 				read(connection.metaData.getIndexInfo(null, null, "child", true, true), "INDEX_NAME"),
+			)
+		}
+	}
+
+	/** Checks that the driver lists foreign keys from both ends, filling in an implied parent column. */
+	@Test
+	fun `lists foreign keys from both ends`() {
+		database.setUp("create table remark (pid integer references parent on update set null)")
+		val columns = arrayOf(
+			"PKTABLE_NAME", "PKCOLUMN_NAME", "FKTABLE_NAME", "FKCOLUMN_NAME", "KEY_SEQ", "UPDATE_RULE", "DELETE_RULE",
+		)
+
+		server.connect().use { connection ->
+			val imported = connection.metaData.getImportedKeys(null, null, "child")
+
+			assertEquals(14, imported.metaData.columnCount)
+			assertEquals(
+				listOf(
+					listOf("parent", "id", "child", "a", 1L, NO_ACTION, NO_ACTION),
+					listOf("parent", "id", "child", "pid", 1L, NO_ACTION, CASCADE),
+				),
+				read(imported, *columns),
+			)
+			assertEquals(
+				listOf(
+					listOf("parent", "id", "child", "a", 1L, NO_ACTION, NO_ACTION),
+					listOf("parent", "id", "child", "pid", 1L, NO_ACTION, CASCADE),
+					listOf("parent", "id", "remark", "pid", 1L, SET_NULL, NO_ACTION),
+				),
+				read(connection.metaData.getExportedKeys(null, null, "parent"), *columns),
+			)
+			assertEquals(
+				listOf(listOf("parent", "id", "remark", "pid", 1L, SET_NULL, NO_ACTION)),
+				read(connection.metaData.getCrossReference(null, null, "parent", null, null, "remark"), *columns),
 			)
 		}
 	}
