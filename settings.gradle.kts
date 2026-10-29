@@ -9,3 +9,5 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "d1-jdbc"
+
+include("ide-plugin")

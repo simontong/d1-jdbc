@@ -1,0 +1,19 @@
+<idea-plugin>
+	<id>nz.co.simontong.d1jdbc</id>
+	<name>Cloudflare D1 Driver</name>
+	<version>${version}</version>
+	<vendor url="https://github.com/simontong/d1-jdbc">Simon Tong</vendor>
+	<description><![CDATA[
+		<p>Adds a Cloudflare D1 driver to the database tools, so you can browse, query and edit a remote D1 database.</p>
+		<p>Pick Cloudflare D1 when you add a data source, fill in your account ID and database ID, and use a Cloudflare API token with D1 permission as the password. The IDE downloads the open source driver from GitHub the first time you use it.</p>
+	]]></description>
+	<idea-version since-build="262"/>
+
+	<depends>com.intellij.modules.platform</depends>
+	<depends>com.intellij.database</depends>
+
+	<extensions defaultExtensionNs="com.intellij.database">
+		<driversConfig config="d1jdbc/drivers.xml"/>
+		<artifactsConfig config="d1jdbc/artifacts.xml"/>
+	</extensions>
+</idea-plugin>
