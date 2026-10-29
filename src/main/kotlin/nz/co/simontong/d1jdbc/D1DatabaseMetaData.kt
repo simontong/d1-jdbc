@@ -164,8 +164,10 @@ class D1DatabaseMetaData(
 				val type = declaredType(column.declaredType)
 				val notNull = column.notNull || column == table.rowIdAlias
 				val numeric = type.sqlType in setOf(Types.BIGINT, Types.DOUBLE, Types.NUMERIC)
+				// JetBrains IDEs read a missing size as 0 and show TEXT(0), but read -1 as no size.
+				val size = type.size ?: -1
 				listOf(
-					null, SCHEMA, table.name, column.name, type.sqlType, type.name, type.size, null,
+					null, SCHEMA, table.name, column.name, type.sqlType, type.name, size, null,
 					type.decimalDigits, if (numeric) 10 else null,
 					if (notNull) DatabaseMetaData.columnNoNulls else DatabaseMetaData.columnNullable,
 					null, column.defaultValue, null, null, null, index + 1, if (notNull) "NO" else "YES",

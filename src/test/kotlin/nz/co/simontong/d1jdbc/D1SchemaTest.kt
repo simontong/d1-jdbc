@@ -96,10 +96,10 @@ class D1SchemaTest {
 			assertEquals(24, columns.metaData.columnCount)
 			assertEquals(
 				listOf(
-					listOf("parent", "id", BIGINT, "INTEGER", null, null, 0L, null, 1L, "NO", "YES", "NO"),
-					listOf("parent", "code", VARCHAR, "TEXT", null, null, 0L, null, 2L, "NO", "NO", "NO"),
+					listOf("parent", "id", BIGINT, "INTEGER", -1L, null, 0L, null, 1L, "NO", "YES", "NO"),
+					listOf("parent", "code", VARCHAR, "TEXT", -1L, null, 0L, null, 2L, "NO", "NO", "NO"),
 					listOf("parent", "note", VARCHAR, "VARCHAR", 20L, null, 1L, "'x'", 3L, "YES", "NO", "NO"),
-					listOf("parent", "g", BIGINT, "INTEGER", null, null, 1L, null, 4L, "YES", "NO", "YES"),
+					listOf("parent", "g", BIGINT, "INTEGER", -1L, null, 1L, null, 4L, "YES", "NO", "YES"),
 				),
 				read(
 					columns, "TABLE_NAME", "COLUMN_NAME", "DATA_TYPE", "TYPE_NAME", "COLUMN_SIZE", "DECIMAL_DIGITS",
@@ -274,18 +274,18 @@ class D1SchemaTest {
 
 			assertEquals(
 				listOf(
-					listOf("a", BIGINT, "BIGINT", null, null),
+					listOf("a", BIGINT, "BIGINT", -1L, null),
 					listOf("b", VARCHAR, "NVARCHAR", 10L, null),
-					listOf("c", VARCHAR, "CLOB", null, null),
-					listOf("d", BLOB, "BLOB", null, null),
-					listOf("e", BLOB, "", null, null),
-					listOf("f", DOUBLE, "DOUBLE PRECISION", null, null),
-					listOf("g", DOUBLE, "FLOAT", null, null),
+					listOf("c", VARCHAR, "CLOB", -1L, null),
+					listOf("d", BLOB, "BLOB", -1L, null),
+					listOf("e", BLOB, "", -1L, null),
+					listOf("f", DOUBLE, "DOUBLE PRECISION", -1L, null),
+					listOf("g", DOUBLE, "FLOAT", -1L, null),
 					listOf("h", NUMERIC, "DECIMAL", 10L, 2L),
-					listOf("i", NUMERIC, "BOOLEAN", null, null),
-					listOf("j", NUMERIC, "DATETIME", null, null),
-					listOf("k", BIGINT, "CHARINT", null, null),
-					listOf("l", BIGINT, "FLOATING POINT", null, null),
+					listOf("i", NUMERIC, "BOOLEAN", -1L, null),
+					listOf("j", NUMERIC, "DATETIME", -1L, null),
+					listOf("k", BIGINT, "CHARINT", -1L, null),
+					listOf("l", BIGINT, "FLOATING POINT", -1L, null),
 				),
 				read(columns, "COLUMN_NAME", "DATA_TYPE", "TYPE_NAME", "COLUMN_SIZE", "DECIMAL_DIGITS"),
 			)
