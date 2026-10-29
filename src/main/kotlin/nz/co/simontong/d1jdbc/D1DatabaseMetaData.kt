@@ -5,6 +5,7 @@ import java.sql.DatabaseMetaData
 import java.sql.ResultSet
 import java.sql.RowIdLifetime
 import java.sql.SQLException
+import java.sql.Types
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
@@ -136,6 +137,44 @@ class D1DatabaseMetaData(
 			.sortedWith(compareBy({ it.type }, { it.name.lowercase() }))
 			.map { listOf(null, SCHEMA, it.name, it.type, null, null, null, null, null, null) }
 		return rowsOf(TABLE_COLUMNS, rows)
+	}
+
+	/**
+	 * Describes the columns of tables and views.
+	 *
+	 * @param catalog catalog name, or null
+	 * @param schemaPattern schema pattern, or null
+	 * @param tableNamePattern table name pattern, or null
+	 * @param columnNamePattern column name pattern, or null
+	 * @return one row per column, sorted by table and position
+	 * @throws SQLException when D1 reports an error
+	 */
+	override fun getColumns(
+		catalog: String?,
+		schemaPattern: String?,
+		tableNamePattern: String?,
+		columnNamePattern: String?,
+	): ResultSet {
+		val rows = tables(catalog, schemaPattern, tableNamePattern).flatMap { table ->
+			table.columns.mapIndexedNotNull { index, column ->
+				if (!matches(columnNamePattern, column.name)) {
+					return@mapIndexedNotNull null
+				}
+				val type = declaredType(column.declaredType)
+				val notNull = column.notNull || column == table.rowIdAlias
+				val numeric = type.sqlType in setOf(Types.BIGINT, Types.DOUBLE, Types.NUMERIC)
+				listOf(
+					null, SCHEMA, table.name, column.name, type.sqlType, type.name, type.size, null,
+					type.decimalDigits, if (numeric) 10 else null,
+					if (notNull) DatabaseMetaData.columnNoNulls else DatabaseMetaData.columnNullable,
+					null, column.defaultValue, null, null, null, index + 1, if (notNull) "NO" else "YES",
+					null, null, null, null,
+					if (column == table.rowIdAlias) "YES" else "NO",
+					if (column.generated) "YES" else "NO",
+				)
+			}
+		}
+		return rowsOf(COLUMN_COLUMNS, rows)
 	}
 
 	/** @return the one schema D1 has, `main` */
@@ -534,8 +573,6 @@ class D1DatabaseMetaData(
 	/** @return an empty result, filled in once schema browsing is built */
 	override fun getCatalogs(): ResultSet = emptyResult("TABLE_CAT")
 
-	/** @return an empty result, filled in once schema browsing is built */
-	override fun getColumns(p0: String?, p1: String?, p2: String?, p3: String?): ResultSet = emptyResult("TABLE_CAT", "TABLE_SCHEM", "TABLE_NAME", "COLUMN_NAME", "DATA_TYPE", "TYPE_NAME", "COLUMN_SIZE", "BUFFER_LENGTH", "DECIMAL_DIGITS", "NUM_PREC_RADIX", "NULLABLE", "REMARKS", "COLUMN_DEF", "SQL_DATA_TYPE", "SQL_DATETIME_SUB", "CHAR_OCTET_LENGTH", "ORDINAL_POSITION", "IS_NULLABLE", "SCOPE_CATALOG", "SCOPE_SCHEMA", "SCOPE_TABLE", "SOURCE_DATA_TYPE", "IS_AUTOINCREMENT", "IS_GENERATEDCOLUMN")
 
 	/** @return an empty result, filled in once schema browsing is built */
 	override fun getColumnPrivileges(p0: String?, p1: String?, p2: String?, p3: String?): ResultSet = emptyResult("TABLE_CAT", "TABLE_SCHEM", "TABLE_NAME", "COLUMN_NAME", "GRANTOR", "GRANTEE", "PRIVILEGE", "IS_GRANTABLE")
@@ -685,6 +722,14 @@ class D1DatabaseMetaData(
 	private companion object {
 		/** The one schema D1 has. */
 		const val SCHEMA = "main"
+
+		/** Columns of [getColumns], in the order JDBC sets. */
+		val COLUMN_COLUMNS = listOf(
+			"TABLE_CAT", "TABLE_SCHEM", "TABLE_NAME", "COLUMN_NAME", "DATA_TYPE", "TYPE_NAME", "COLUMN_SIZE",
+			"BUFFER_LENGTH", "DECIMAL_DIGITS", "NUM_PREC_RADIX", "NULLABLE", "REMARKS", "COLUMN_DEF", "SQL_DATA_TYPE",
+			"SQL_DATETIME_SUB", "CHAR_OCTET_LENGTH", "ORDINAL_POSITION", "IS_NULLABLE", "SCOPE_CATALOG", "SCOPE_SCHEMA",
+			"SCOPE_TABLE", "SOURCE_DATA_TYPE", "IS_AUTOINCREMENT", "IS_GENERATEDCOLUMN",
+		)
 
 		/** Columns of [getTables], in the order JDBC sets. */
 		val TABLE_COLUMNS = listOf(

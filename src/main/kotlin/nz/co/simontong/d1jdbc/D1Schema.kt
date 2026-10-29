@@ -287,3 +287,48 @@ internal class SchemaCache(
 		schema = null
 	}
 }
+
+/** A declared type with an optional size, like `varchar(20)` or `decimal(10, 2)`. */
+private val SIZED_TYPE = Regex("""^(.*?)\s*\(\s*(\d+)\s*(?:,\s*(\d+)\s*)?\)$""")
+
+/**
+ * A declared column type split into its name and size, with its JDBC type.
+ *
+ * @property name type name in capitals, without the size
+ * @property size first number in brackets, or null
+ * @property decimalDigits second number in brackets, or null
+ * @property sqlType [java.sql.Types] constant from SQLite's affinity rules
+ */
+internal data class DeclaredType(
+	val name: String,
+	val size: Int?,
+	val decimalDigits: Int?,
+	val sqlType: Int,
+)
+
+/**
+ * Reads a declared column type, using SQLite's affinity rules in their set order.
+ *
+ * @param declared type as written in CREATE TABLE
+ * @return the parsed type
+ */
+internal fun declaredType(declared: String): DeclaredType {
+	val clean = declared.trim().replace(Regex("""\s+"""), " ").uppercase()
+	val match = SIZED_TYPE.matchEntire(clean)
+	val name = match?.groupValues?.get(1) ?: clean
+
+	// Rules from https://sqlite.org/datatype3.html#determination_of_column_affinity
+	val sqlType = when {
+		"INT" in clean -> java.sql.Types.BIGINT
+		"CHAR" in clean || "CLOB" in clean || "TEXT" in clean -> java.sql.Types.VARCHAR
+		"BLOB" in clean || clean.isEmpty() -> java.sql.Types.BLOB
+		"REAL" in clean || "FLOA" in clean || "DOUB" in clean -> java.sql.Types.DOUBLE
+		else -> java.sql.Types.NUMERIC
+	}
+	return DeclaredType(
+		name = name,
+		size = match?.groupValues?.get(2)?.toIntOrNull(),
+		decimalDigits = match?.groupValues?.get(3)?.toIntOrNull(),
+		sqlType = sqlType,
+	)
+}
