@@ -100,6 +100,54 @@ class LiveD1ClientTest {
 			}
 		}
 	}
+
+	/** Checks that the driver reads the real database's schema and hides D1's own tables. */
+	@Test
+	fun `reads the real database's schema`() {
+		val token = settings["D1_TEST_API_TOKEN"].orEmpty()
+		assumeTrue(token.isNotBlank(), "No D1_TEST_API_TOKEN in .env, so the live test is skipped")
+		val properties = Properties()
+		properties["password"] = token
+		val url = "jdbc:d1://${settings.getValue("D1_TEST_ACCOUNT_ID")}/${settings.getValue("D1_TEST_DATABASE_ID")}"
+
+		DriverManager.getConnection(url, properties).use { connection ->
+			val statement = connection.createStatement()
+			statement.executeUpdate("drop table if exists live_child")
+			statement.executeUpdate("drop table if exists live_parent")
+			statement.executeUpdate("create table live_parent (id integer primary key, code text not null unique)")
+			statement.executeUpdate(
+				"create table live_child (id integer primary key, pid integer references live_parent(id) on delete cascade)",
+			)
+			try {
+				val metaData = connection.metaData
+				val tables = metaData.getTables(null, null, "%", null)
+				val names = generateSequence { if (tables.next()) tables.getString("TABLE_NAME") else null }.toList()
+				assertTrue("live_parent" in names && "live_child" in names)
+				assertTrue(names.none { it.startsWith("_cf_") || it.startsWith("sqlite_") })
+
+				val columns = metaData.getColumns(null, null, "live_parent", null)
+				assertTrue(columns.next())
+				assertEquals("id", columns.getString("COLUMN_NAME"))
+				assertEquals("YES", columns.getString("IS_AUTOINCREMENT"))
+				assertTrue(columns.next())
+				assertEquals("code", columns.getString("COLUMN_NAME"))
+				assertEquals("NO", columns.getString("IS_NULLABLE"))
+
+				val indexes = metaData.getIndexInfo(null, null, "live_parent", true, true)
+				assertTrue(indexes.next())
+				assertEquals("code", indexes.getString("COLUMN_NAME"))
+
+				val keys = metaData.getImportedKeys(null, null, "live_child")
+				assertTrue(keys.next())
+				assertEquals("live_parent", keys.getString("PKTABLE_NAME"))
+				assertEquals("pid", keys.getString("FKCOLUMN_NAME"))
+				assertFalse(keys.next())
+			} finally {
+				statement.executeUpdate("drop table live_child")
+				statement.executeUpdate("drop table live_parent")
+			}
+		}
+	}
 }
 
 /**
