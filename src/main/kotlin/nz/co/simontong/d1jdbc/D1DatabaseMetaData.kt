@@ -210,7 +210,7 @@ class D1DatabaseMetaData(
 		val rows = found?.columns.orEmpty()
 			.filter { it.primaryKeyPosition > 0 }
 			.sortedBy { it.name.lowercase() }
-			.map { listOf(null, SCHEMA, found!!.name, it.name, it.primaryKeyPosition, null) }
+			.map { listOf(null, SCHEMA, found!!.name, it.name, it.primaryKeyPosition, found.primaryKeyName) }
 		return rowsOf(PRIMARY_KEY_COLUMNS, rows)
 	}
 
@@ -274,7 +274,7 @@ class D1DatabaseMetaData(
 					rows += listOf(
 						null, SCHEMA, parent?.name ?: key.parentTable, to ?: parentKey.getOrNull(position)?.name,
 						null, SCHEMA, child.name, from, position + 1, ruleOf(key.onUpdate), ruleOf(key.onDelete),
-						null, null, DatabaseMetaData.importedKeyNotDeferrable,
+						key.name, null, DatabaseMetaData.importedKeyNotDeferrable,
 					)
 				}
 			}

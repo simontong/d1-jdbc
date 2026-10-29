@@ -188,6 +188,43 @@ class D1SchemaTest {
 		}
 	}
 
+	/** Checks that keys named in CREATE TABLE keep their names, and unnamed keys have none. */
+	@Test
+	fun `names keys the table's SQL names`() {
+		database.setUp(
+			"create table named (id integer constraint \"Named key\" primary key, "
+				+ "pid integer constraint fk_pid references parent(id), a integer, b integer check (a <> b), "
+				+ "constraint fk_ab foreign key (a, b) references child (a, b), foreign key (b) references parent)",
+			"create table pair (x, y, constraint pk_pair primary key (x, y))",
+		)
+
+		server.connect().use { connection ->
+			val metaData = connection.metaData
+			assertEquals(
+				listOf(listOf("id", "Named key")),
+				read(metaData.getPrimaryKeys(null, null, "named"), "COLUMN_NAME", "PK_NAME"),
+			)
+			assertEquals(
+				listOf(listOf("x", "pk_pair"), listOf("y", "pk_pair")),
+				read(metaData.getPrimaryKeys(null, null, "pair"), "COLUMN_NAME", "PK_NAME"),
+			)
+			assertEquals(
+				listOf(listOf("a", null), listOf("b", null)),
+				read(metaData.getPrimaryKeys(null, null, "child"), "COLUMN_NAME", "PK_NAME"),
+			)
+			assertEquals(
+				listOf(
+					listOf("child", "a", "fk_ab"),
+					listOf("child", "b", "fk_ab"),
+					listOf("parent", "b", null),
+					listOf("parent", "pid", "fk_pid"),
+				),
+				read(metaData.getImportedKeys(null, null, "named"), "PKTABLE_NAME", "FKCOLUMN_NAME", "FK_NAME")
+					.sortedBy { it.toString() },
+			)
+		}
+	}
+
 	/** Checks that browsing reuses one schema load, and a schema change makes it load again. */
 	@Test
 	fun `reuses the loaded schema until something changes it`() {

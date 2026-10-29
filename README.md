@@ -68,7 +68,7 @@ Read-only mode is a check inside the driver. For a real guarantee, use a token w
 - Each statement can have at most 100 bound values (https://developers.cloudflare.com/d1/platform/limits/). SQL holding several statements can't have `?` values at all, which D1 rejects (see `docs/research/live-tests.md`). Batches of separate statements are fine.
 - Only queries that read from one table, with no joins, grouping or unions, can be edited in the grid. The driver works out the table from the SQL, as D1 doesn't say where result columns come from.
 - After an insert, the only generated key the driver can return is the new row ID.
-- Foreign keys have no names, as SQLite doesn't report them.
+- Primary and foreign keys only have names when CREATE TABLE gives them one, like `constraint fk_parent foreign key (pid) references parent(id)`. Tools show their own placeholder name for the rest.
 - D1 doesn't send column types with results, so the type of a column in a result comes from its values, or from the table when the query reads from one table.
 
 ## Build it yourself

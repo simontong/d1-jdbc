@@ -17,13 +17,13 @@ internal data class ColumnSource(
  * @property text the token, with quotes removed from quoted names
  * @property kind what sort of token it is
  */
-private data class Token(
+internal data class Token(
 	val text: String,
 	val kind: TokenKind,
 )
 
 /** Sorts of SQL token the reader tells apart. */
-private enum class TokenKind {
+internal enum class TokenKind {
 	WORD,
 	QUOTED_NAME,
 	SYMBOL,
@@ -49,7 +49,7 @@ private val ROW_ID_NAMES = setOf("rowid", "oid", "_rowid_")
  * @param sql SQL text
  * @return the tokens in order
  */
-private fun tokens(sql: String): List<Token> {
+internal fun tokens(sql: String): List<Token> {
 	val found = mutableListOf<Token>()
 	var index = 0
 	while (index < sql.length) {
@@ -121,7 +121,7 @@ private fun quoteEnd(sql: String, start: Int, close: Char): Int {
  * @param word word to compare with
  * @return true when it matches
  */
-private fun Token.isWord(word: String): Boolean = kind == TokenKind.WORD && text.equals(word, ignoreCase = true)
+internal fun Token.isWord(word: String): Boolean = kind == TokenKind.WORD && text.equals(word, ignoreCase = true)
 
 /**
  * Says whether a token can be a table, column or alias name.
@@ -138,7 +138,7 @@ private fun Token.isName(): Boolean {
  * @param tokens tokens to split
  * @return the pieces between commas
  */
-private fun splitOnCommas(tokens: List<Token>): List<List<Token>> {
+internal fun splitOnCommas(tokens: List<Token>): List<List<Token>> {
 	val pieces = mutableListOf(mutableListOf<Token>())
 	var depth = 0
 	for (token in tokens) {
@@ -161,7 +161,7 @@ private fun splitOnCommas(tokens: List<Token>): List<List<Token>> {
  * @param tokens tokens to measure
  * @return bracket depth per token, where brackets themselves count as inside
  */
-private fun depths(tokens: List<Token>): List<Int> {
+internal fun depths(tokens: List<Token>): List<Int> {
 	var depth = 0
 	return tokens.map { token ->
 		if (token.kind == TokenKind.SYMBOL && token.text == "(") {

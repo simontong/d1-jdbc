@@ -116,7 +116,8 @@ class LiveD1ClientTest {
 			statement.executeUpdate("drop table if exists live_parent")
 			statement.executeUpdate("create table live_parent (id integer primary key, code text not null unique)")
 			statement.executeUpdate(
-				"create table live_child (id integer primary key, pid integer references live_parent(id) on delete cascade)",
+				"create table live_child (id integer constraint pk_live primary key, "
+					+ "pid integer constraint fk_live references live_parent(id) on delete cascade)",
 			)
 			try {
 				val metaData = connection.metaData
@@ -137,10 +138,15 @@ class LiveD1ClientTest {
 				assertTrue(indexes.next())
 				assertEquals("code", indexes.getString("COLUMN_NAME"))
 
+				val primaryKey = metaData.getPrimaryKeys(null, null, "live_child")
+				assertTrue(primaryKey.next())
+				assertEquals("pk_live", primaryKey.getString("PK_NAME"))
+
 				val keys = metaData.getImportedKeys(null, null, "live_child")
 				assertTrue(keys.next())
 				assertEquals("live_parent", keys.getString("PKTABLE_NAME"))
 				assertEquals("pid", keys.getString("FKCOLUMN_NAME"))
+				assertEquals("fk_live", keys.getString("FK_NAME"))
 				assertFalse(keys.next())
 			} finally {
 				statement.executeUpdate("drop table live_child")

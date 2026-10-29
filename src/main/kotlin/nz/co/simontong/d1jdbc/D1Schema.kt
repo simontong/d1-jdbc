@@ -51,12 +51,14 @@ internal data class SchemaIndex(
 /**
  * One foreign key on a table.
  *
+ * @property name name given in CREATE TABLE, or null
  * @property parentTable table the key refers to
  * @property columns child and parent column pairs, where a null parent means its primary key
  * @property onUpdate ON UPDATE action, like `CASCADE`
  * @property onDelete ON DELETE action, like `CASCADE`
  */
 internal data class SchemaForeignKey(
+	val name: String?,
 	val parentTable: String,
 	val columns: List<Pair<String, String?>>,
 	val onUpdate: String,
@@ -70,6 +72,7 @@ internal data class SchemaForeignKey(
  * @property type `TABLE` or `VIEW`
  * @property withoutRowId whether the table is WITHOUT ROWID
  * @property columns visible columns in order
+ * @property primaryKeyName primary key name given in CREATE TABLE, or null
  * @property indexes indexes on the table
  * @property foreignKeys foreign keys on the table
  */
@@ -78,6 +81,7 @@ internal data class SchemaTable(
 	val type: String,
 	val withoutRowId: Boolean,
 	val columns: List<SchemaColumn>,
+	val primaryKeyName: String?,
 	val indexes: List<SchemaIndex>,
 	val foreignKeys: List<SchemaForeignKey>,
 ) {
@@ -160,18 +164,20 @@ private fun records(result: D1Result): List<Map<String, JsonElement>> {
  * @throws java.sql.SQLException when D1 reports an error
  */
 internal fun loadSchema(client: D1Client): D1Schema {
-	val (tableList, indexList) = client.execute(listOf(
+	val (tableList, schemaList) = client.execute(listOf(
 		D1Query("pragma table_list"),
-		D1Query("select name, tbl_name from sqlite_schema where type = 'index'"),
+		D1Query("select type, name, tbl_name, sql from sqlite_schema where type in ('table', 'index')"),
 	))
 	val found = records(tableList).filter { row ->
 		val name = row.getValue("name").text()!!
 		row.getValue("schema").text() == "main" && row.getValue("type").text() in setOf("table", "view") && !isSystemTable(name)
 	}
 	val tableNames = found.map { it.getValue("name").text()!! }.toSet()
-	val indexNames = records(indexList)
+	val (tableRows, indexRows) = records(schemaList).partition { it.getValue("type").text() == "table" }
+	val indexNames = indexRows
 		.filter { it.getValue("tbl_name").text() in tableNames }
 		.map { it.getValue("name").text()!! }
+	val tableSql = tableRows.associate { it.getValue("name").text()!! to it.getValue("sql").text() }
 
 	// Ask for every table's details, then every index's columns, in as few requests as possible.
 	val queries = mutableListOf<D1Query>()
@@ -192,16 +198,19 @@ internal fun loadSchema(client: D1Client): D1Schema {
 	}
 	val tables = found.mapIndexed { position, row ->
 		val (columns, indexes, foreignKeys) = results.subList(position * 3, position * 3 + 3)
+		val name = row.getValue("name").text()!!
+		val names = constraintNames(tableSql[name])
 		SchemaTable(
-			name = row.getValue("name").text()!!,
+			name = name,
 			type = if (row.getValue("type").text() == "view") "VIEW" else "TABLE",
 			withoutRowId = row.getValue("wr").number() == 1,
 			columns = readColumns(columns),
+			primaryKeyName = names.primaryKey,
 			indexes = records(indexes).map { index ->
 				val name = index.getValue("name").text()!!
 				SchemaIndex(name, index.getValue("unique").number() == 1, indexColumns[name].orEmpty())
 			},
-			foreignKeys = readForeignKeys(foreignKeys),
+			foreignKeys = readForeignKeys(foreignKeys, names.foreignKeys),
 		)
 	}
 	return D1Schema(tables.sortedBy { it.name.lowercase() })
@@ -231,9 +240,11 @@ private fun readColumns(result: D1Result): List<SchemaColumn> {
  * Reads foreign keys from `pragma foreign_key_list`, grouping the columns of each key.
  *
  * @param result the PRAGMA's result
+ * @param named keys that CREATE TABLE names
  * @return foreign keys in order
  */
-private fun readForeignKeys(result: D1Result): List<SchemaForeignKey> {
+private fun readForeignKeys(result: D1Result, named: List<NamedForeignKey>): List<SchemaForeignKey> {
+	val unused = named.toMutableList()
 	return records(result)
 		.groupBy { it.getValue("id").number() }
 		.toSortedMap()
@@ -241,9 +252,19 @@ private fun readForeignKeys(result: D1Result): List<SchemaForeignKey> {
 		.map { rows ->
 			val ordered = rows.sortedBy { it.getValue("seq").number() }
 			val first = ordered.first()
+			val parentTable = first.getValue("table").text()!!
+			val columns = ordered.map { it.getValue("from").text()!! to it.getValue("to").text() }
+
+			// The PRAGMA has no names, so match a named key by its parent and child columns.
+			val match = unused.firstOrNull { key ->
+				key.parentTable.equals(parentTable, ignoreCase = true)
+					&& key.columns.map { it.lowercase() } == columns.map { it.first.lowercase() }
+			}
+			match?.let { unused.remove(it) }
 			SchemaForeignKey(
-				parentTable = first.getValue("table").text()!!,
-				columns = ordered.map { it.getValue("from").text()!! to it.getValue("to").text() },
+				name = match?.name,
+				parentTable = parentTable,
+				columns = columns,
 				onUpdate = first.getValue("on_update").text()!!,
 				onDelete = first.getValue("on_delete").text()!!,
 			)
