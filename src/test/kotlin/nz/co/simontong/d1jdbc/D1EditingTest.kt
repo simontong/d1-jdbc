@@ -68,4 +68,73 @@ class D1EditingTest {
 			assertEquals("java.lang.Double", metaData.getColumnClassName(3))
 		}
 	}
+
+	/** Checks that named columns, aliases and the row ID each map to their table column. */
+	@Test
+	fun `maps named columns, aliases and the row ID`() {
+		server.connect().use { connection ->
+			val sql = "select i.name as label, price, i.rowid, upper(name), 1 as one from main.item as i where id > 0 order by id"
+			val metaData = connection.createStatement().executeQuery(sql).metaData
+
+			assertEquals(
+				listOf(
+					listOf("label", "name", "item", true),
+					listOf("price", "price", "item", true),
+					listOf("id", "id", "item", true),
+					listOf("upper(name)", "upper(name)", "", false),
+					listOf("one", "one", "", false),
+				),
+				columns(metaData) {
+					listOf(metaData.getColumnLabel(it), metaData.getColumnName(it), metaData.getTableName(it), metaData.isWritable(it))
+				},
+			)
+			assertEquals(true, metaData.isAutoIncrement(3))
+
+			val loose = connection.createStatement().executeQuery("select rowid, * from loose").metaData
+			assertEquals(listOf("rowid", "loose", false, true), listOf(
+				loose.getColumnName(1), loose.getTableName(1), loose.isWritable(1), loose.isAutoIncrement(1),
+			))
+			assertEquals(listOf("x", "loose", true), listOf(loose.getColumnName(2), loose.getTableName(2), loose.isWritable(2)))
+		}
+	}
+
+	/** Checks that results not made of one table's rows name no table, so the IDE won't edit them. */
+	@Test
+	fun `names no table when rows don't come from one table`() {
+		val queries = listOf(
+			"select item.name, loose.x from item join loose",
+			"select name from item, loose",
+			"select count(*) as name from item group by name",
+			"select name from item union select x from loose",
+			"select distinct name from item",
+			"select name from (select name from item)",
+			"with c as (select name from item) select name from c",
+			"select name from item; select x from loose",
+		)
+
+		server.connect().use { connection ->
+			for (sql in queries) {
+				val rows = connection.createStatement().executeQuery(sql)
+				assertEquals("", rows.metaData.getTableName(1), sql)
+			}
+		}
+	}
+
+	/** Checks that a query still reads when the schema can't be loaded, with a warning saying why. */
+	@Test
+	fun `warns when the schema can't be loaded`() {
+		server.connect().use { connection ->
+			val rows = connection.createStatement().executeQuery("select name from item order by id")
+			server.respond(500, "")
+
+			assertEquals("", rows.metaData.getTableName(1))
+			assertEquals(
+				"Could not read the schema, so the columns' tables are unknown. Cloudflare's API failed with HTTP 500. "
+					+ "Try again shortly.",
+				rows.warnings.message,
+			)
+			rows.next()
+			assertEquals("tea", rows.getString(1))
+		}
+	}
 }

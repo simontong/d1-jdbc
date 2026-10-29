@@ -286,5 +286,9 @@ private fun itemSources(item: List<Token>, table: SchemaTable, alias: String?): 
 		return listOf(ColumnSource(table, column))
 	}
 	val isRowId = name.lowercase() in ROW_ID_NAMES && table.type == "TABLE" && !table.withoutRowId
-	return listOf(if (isRowId) ColumnSource(table, null) else null)
+	if (!isRowId) {
+		return listOf(null)
+	}
+	// A table with an INTEGER PRIMARY KEY stores the row ID in that column.
+	return listOf(ColumnSource(table, table.rowIdAlias))
 }
