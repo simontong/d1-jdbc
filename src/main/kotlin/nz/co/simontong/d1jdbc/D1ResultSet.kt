@@ -328,7 +328,7 @@ class D1ResultSet(
 	 * Reads the value as the Java type of its column, so every row gives the same class.
 	 *
 	 * @param columnIndex column number
-	 * @return Long, Double, String or ByteArray, or null for SQL NULL
+	 * @return Long, Double, Boolean, String or ByteArray, or null for SQL NULL
 	 */
 	override fun getObject(columnIndex: Int): Any? {
 		val element = value(columnIndex) ?: return null
@@ -337,6 +337,7 @@ class D1ResultSet(
 			ColumnKind.INTEGER -> getLong(columnIndex)
 			ColumnKind.REAL -> getDouble(columnIndex)
 			ColumnKind.BLOB -> getBytes(columnIndex)
+			ColumnKind.BOOLEAN -> getBoolean(columnIndex)
 			else -> getString(columnIndex)
 		}
 	}

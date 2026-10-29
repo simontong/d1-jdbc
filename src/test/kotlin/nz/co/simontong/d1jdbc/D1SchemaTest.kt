@@ -1,5 +1,6 @@
 package nz.co.simontong.d1jdbc
 
+import java.sql.DatabaseMetaData
 import java.sql.ResultSet
 import java.sql.Types
 import kotlin.test.AfterTest
@@ -32,6 +33,7 @@ class D1SchemaTest {
 	private val BLOB = Types.BLOB.toLong()
 	private val DOUBLE = Types.DOUBLE.toLong()
 	private val NUMERIC = Types.NUMERIC.toLong()
+	private val OTHER_INDEX = DatabaseMetaData.tableIndexOther.toLong()
 
 	/** Stops the stub server and closes the database after each test. */
 	@AfterTest
@@ -101,6 +103,47 @@ class D1SchemaTest {
 			assertEquals(
 				listOf(listOf("parent", "id", 1L), listOf("v", "id", 1L)),
 				read(connection.metaData.getColumns(null, null, "%", "_d"), "TABLE_NAME", "COLUMN_NAME", "ORDINAL_POSITION"),
+			)
+		}
+	}
+
+	/** Checks that the driver lists primary key columns in key order. */
+	@Test
+	fun `lists primary key columns`() {
+		server.connect().use { connection ->
+			val keys = connection.metaData.getPrimaryKeys(null, null, "child")
+
+			assertEquals(6, keys.metaData.columnCount)
+			assertEquals(
+				listOf(listOf("child", "a", 1L), listOf("child", "b", 2L)),
+				read(keys, "TABLE_NAME", "COLUMN_NAME", "KEY_SEQ"),
+			)
+			assertEquals(
+				listOf(listOf("id", 1L)),
+				read(connection.metaData.getPrimaryKeys(null, null, "parent"), "COLUMN_NAME", "KEY_SEQ"),
+			)
+			assertEquals(emptyList(), read(connection.metaData.getPrimaryKeys(null, null, "v"), "COLUMN_NAME"))
+		}
+	}
+
+	/** Checks that the driver lists each index's columns, with unique ones first. */
+	@Test
+	fun `lists indexes and their columns`() {
+		server.connect().use { connection ->
+			val indexes = connection.metaData.getIndexInfo(null, null, "child", false, true)
+
+			assertEquals(13, indexes.metaData.columnCount)
+			assertEquals(
+				listOf(
+					listOf("child", false, "sqlite_autoindex_child_1", OTHER_INDEX, 1L, "a", "A"),
+					listOf("child", false, "sqlite_autoindex_child_1", OTHER_INDEX, 2L, "b", "A"),
+					listOf("child", true, "child_b", OTHER_INDEX, 1L, "b", "D"),
+				),
+				read(indexes, "TABLE_NAME", "NON_UNIQUE", "INDEX_NAME", "TYPE", "ORDINAL_POSITION", "COLUMN_NAME", "ASC_OR_DESC"),
+			)
+			assertEquals(
+				listOf(listOf("sqlite_autoindex_child_1"), listOf("sqlite_autoindex_child_1")),
+				read(connection.metaData.getIndexInfo(null, null, "child", true, true), "INDEX_NAME"),
 			)
 		}
 	}

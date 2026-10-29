@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 
 /**
  * The type of a result column, worked out from its values, as D1 doesn't send declared types.
@@ -21,6 +22,10 @@ internal enum class ColumnKind(
 	INTEGER(Types.BIGINT, "INTEGER", "java.lang.Long"),
 	REAL(Types.DOUBLE, "REAL", "java.lang.Double"),
 	TEXT(Types.VARCHAR, "TEXT", "java.lang.String"),
+
+	// D1 never sends JSON booleans, so only the driver's own metadata results use this.
+	BOOLEAN(Types.BOOLEAN, "BOOLEAN", "java.lang.Boolean"),
+
 	BLOB(Types.BLOB, "BLOB", "[B"),
 	ANY(Types.OTHER, "ANY", "java.lang.Object"),
 	NULL(Types.NULL, "NULL", "java.lang.Object"),
@@ -53,6 +58,7 @@ internal fun valueKindOf(value: JsonElement): ColumnKind {
 		value is JsonArray -> ColumnKind.BLOB
 		value !is JsonPrimitive -> ColumnKind.TEXT
 		value.isString -> ColumnKind.TEXT
+		value.booleanOrNull != null -> ColumnKind.BOOLEAN
 		isWholeNumber(value.content) -> ColumnKind.INTEGER
 		else -> ColumnKind.REAL
 	}

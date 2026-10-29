@@ -40,13 +40,14 @@ class D1DatabaseMetaData(
 	/**
 	 * Turns a Kotlin value into a JSON value for a metadata row.
 	 *
-	 * @param value text, number, or null
+	 * @param value text, number, boolean, or null
 	 * @return the JSON value
 	 */
 	private fun json(value: Any?): JsonElement {
 		return when (value) {
 			null -> JsonNull
 			is Number -> JsonPrimitive(value)
+			is Boolean -> JsonPrimitive(value)
 			else -> JsonPrimitive(value.toString())
 		}
 	}
@@ -175,6 +176,73 @@ class D1DatabaseMetaData(
 			}
 		}
 		return rowsOf(COLUMN_COLUMNS, rows)
+	}
+
+	/**
+	 * Finds the one table a metadata call names exactly.
+	 *
+	 * @param catalog catalog name, or null
+	 * @param schema schema name, or null
+	 * @param table table name, matched ignoring case
+	 * @return the table, or null when there's no such table
+	 * @throws SQLException when D1 reports an error
+	 */
+	private fun table(catalog: String?, schema: String?, table: String?): SchemaTable? {
+		if (!catalog.isNullOrEmpty() || (schema != null && !schema.equals(SCHEMA, ignoreCase = true)) || table == null) {
+			return null
+		}
+		return connection.schemaCache.get().table(table)
+	}
+
+	/**
+	 * Lists a table's primary key columns.
+	 *
+	 * @param catalog catalog name, or null
+	 * @param schema schema name, or null
+	 * @param table table name
+	 * @return one row per key column, sorted by column name as JDBC asks
+	 * @throws SQLException when D1 reports an error
+	 */
+	override fun getPrimaryKeys(catalog: String?, schema: String?, table: String?): ResultSet {
+		val found = table(catalog, schema, table)
+		val rows = found?.columns.orEmpty()
+			.filter { it.primaryKeyPosition > 0 }
+			.sortedBy { it.name.lowercase() }
+			.map { listOf(null, SCHEMA, found!!.name, it.name, it.primaryKeyPosition, null) }
+		return rowsOf(PRIMARY_KEY_COLUMNS, rows)
+	}
+
+	/**
+	 * Lists a table's indexes and their columns.
+	 *
+	 * @param catalog catalog name, or null
+	 * @param schema schema name, or null
+	 * @param table table name
+	 * @param unique whether to list only unique indexes
+	 * @param approximate ignored, as no statistics are returned
+	 * @return one row per index column, unique indexes first
+	 * @throws SQLException when D1 reports an error
+	 */
+	override fun getIndexInfo(
+		catalog: String?,
+		schema: String?,
+		table: String?,
+		unique: Boolean,
+		approximate: Boolean,
+	): ResultSet {
+		val found = table(catalog, schema, table)
+		val rows = found?.indexes.orEmpty()
+			.filter { it.unique || !unique }
+			.sortedWith(compareBy({ !it.unique }, { it.name.lowercase() }))
+			.flatMap { index ->
+				index.columns.mapIndexed { position, column ->
+					listOf(
+						null, SCHEMA, found!!.name, !index.unique, null, index.name, DatabaseMetaData.tableIndexOther,
+						position + 1, column.name, if (column.descending) "D" else "A", null, null, null,
+					)
+				}
+			}
+		return rowsOf(INDEX_COLUMNS, rows)
 	}
 
 	/** @return the one schema D1 has, `main` */
@@ -586,8 +654,6 @@ class D1DatabaseMetaData(
 	/** @return an empty result, filled in once schema browsing is built */
 	override fun getVersionColumns(p0: String?, p1: String?, p2: String?): ResultSet = emptyResult("SCOPE", "COLUMN_NAME", "DATA_TYPE", "TYPE_NAME", "COLUMN_SIZE", "BUFFER_LENGTH", "DECIMAL_DIGITS", "PSEUDO_COLUMN")
 
-	/** @return an empty result, filled in once schema browsing is built */
-	override fun getPrimaryKeys(p0: String?, p1: String?, p2: String?): ResultSet = emptyResult("TABLE_CAT", "TABLE_SCHEM", "TABLE_NAME", "COLUMN_NAME", "KEY_SEQ", "PK_NAME")
 
 	/** @return an empty result, filled in once schema browsing is built */
 	override fun getImportedKeys(p0: String?, p1: String?, p2: String?): ResultSet = emptyResult("PKTABLE_CAT", "PKTABLE_SCHEM", "PKTABLE_NAME", "PKCOLUMN_NAME", "FKTABLE_CAT", "FKTABLE_SCHEM", "FKTABLE_NAME", "FKCOLUMN_NAME", "KEY_SEQ", "UPDATE_RULE", "DELETE_RULE", "FK_NAME", "PK_NAME", "DEFERRABILITY")
@@ -601,8 +667,6 @@ class D1DatabaseMetaData(
 	/** @return an empty result, filled in once schema browsing is built */
 	override fun getTypeInfo(): ResultSet = emptyResult("TYPE_NAME", "DATA_TYPE", "PRECISION", "LITERAL_PREFIX", "LITERAL_SUFFIX", "CREATE_PARAMS", "NULLABLE", "CASE_SENSITIVE", "SEARCHABLE", "UNSIGNED_ATTRIBUTE", "FIXED_PREC_SCALE", "AUTO_INCREMENT", "LOCAL_TYPE_NAME", "MINIMUM_SCALE", "MAXIMUM_SCALE", "SQL_DATA_TYPE", "SQL_DATETIME_SUB", "NUM_PREC_RADIX")
 
-	/** @return an empty result, filled in once schema browsing is built */
-	override fun getIndexInfo(p0: String?, p1: String?, p2: String?, p3: Boolean, p4: Boolean): ResultSet = emptyResult("TABLE_CAT", "TABLE_SCHEM", "TABLE_NAME", "NON_UNIQUE", "INDEX_QUALIFIER", "INDEX_NAME", "TYPE", "ORDINAL_POSITION", "COLUMN_NAME", "ASC_OR_DESC", "CARDINALITY", "PAGES", "FILTER_CONDITION")
 
 	/** @return true only for forward-only results */
 	override fun supportsResultSetType(p0: Int): Boolean = p0 == ResultSet.TYPE_FORWARD_ONLY
@@ -729,6 +793,15 @@ class D1DatabaseMetaData(
 			"BUFFER_LENGTH", "DECIMAL_DIGITS", "NUM_PREC_RADIX", "NULLABLE", "REMARKS", "COLUMN_DEF", "SQL_DATA_TYPE",
 			"SQL_DATETIME_SUB", "CHAR_OCTET_LENGTH", "ORDINAL_POSITION", "IS_NULLABLE", "SCOPE_CATALOG", "SCOPE_SCHEMA",
 			"SCOPE_TABLE", "SOURCE_DATA_TYPE", "IS_AUTOINCREMENT", "IS_GENERATEDCOLUMN",
+		)
+
+		/** Columns of [getPrimaryKeys], in the order JDBC sets. */
+		val PRIMARY_KEY_COLUMNS = listOf("TABLE_CAT", "TABLE_SCHEM", "TABLE_NAME", "COLUMN_NAME", "KEY_SEQ", "PK_NAME")
+
+		/** Columns of [getIndexInfo], in the order JDBC sets. */
+		val INDEX_COLUMNS = listOf(
+			"TABLE_CAT", "TABLE_SCHEM", "TABLE_NAME", "NON_UNIQUE", "INDEX_QUALIFIER", "INDEX_NAME", "TYPE",
+			"ORDINAL_POSITION", "COLUMN_NAME", "ASC_OR_DESC", "CARDINALITY", "PAGES", "FILTER_CONDITION",
 		)
 
 		/** Columns of [getTables], in the order JDBC sets. */
