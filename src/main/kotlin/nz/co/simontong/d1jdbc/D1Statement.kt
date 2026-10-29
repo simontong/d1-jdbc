@@ -84,10 +84,12 @@ open class D1Statement(
 			// The statement may change the schema, so load it again next time.
 			connection.schemaCache.clear()
 		}
-		if (queryTimeoutSeconds > 0) {
-			return connection.client.execute(queries, Duration.ofSeconds(queryTimeoutSeconds.toLong()))
+		val timeout = if (queryTimeoutSeconds > 0) Duration.ofSeconds(queryTimeoutSeconds.toLong()) else null
+		val sent = if (timeout != null) connection.client.execute(queries, timeout) else connection.client.execute(queries)
+		if (writes) {
+			connection.changedSinceCommit = true
 		}
-		return connection.client.execute(queries)
+		return sent
 	}
 
 	/**

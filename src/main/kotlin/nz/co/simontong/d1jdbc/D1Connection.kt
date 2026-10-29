@@ -36,6 +36,9 @@ class D1Connection(
 	private var warnings: SQLWarning? = null
 	private var readOnly = settings.readOnly
 
+	/** Whether a statement that changes data has run since the last commit or rollback. */
+	internal var changedSinceCommit = false
+
 	/** The schema, kept for a short time so tools browsing it make few API calls. */
 	internal val schemaCache = SchemaCache(client, Duration.ofSeconds(settings.schemaCacheSeconds))
 
@@ -248,15 +251,20 @@ class D1Connection(
 	 */
 	override fun commit() {
 		checkOpen()
+		changedSinceCommit = false
 	}
 
 	/**
-	 * Always fails, as D1 has already saved every change.
+	 * Does nothing when no change was saved since the last commit, and fails otherwise.
 	 *
-	 * @throws SQLException always
+	 * @throws SQLException when a change was saved, as D1 can't undo it
 	 */
 	override fun rollback() {
 		checkOpen()
+		if (!changedSinceCommit) {
+			return
+		}
+		changedSinceCommit = false
 		throw SQLException(
 			"D1 has no transactions, so changes were saved as each statement ran and can't be rolled back.",
 			"25000",

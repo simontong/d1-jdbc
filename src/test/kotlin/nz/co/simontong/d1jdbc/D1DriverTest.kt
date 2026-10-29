@@ -202,17 +202,39 @@ class D1DriverTest {
 		}
 	}
 
-	/** Checks that the driver says changes can't be undone when asked to roll back. */
+	/** Checks that rollback does nothing when no change was saved, as after a failed statement. */
 	@Test
-	fun `says changes can't be undone when asked to roll back`() {
-		val error = assertFailsWith<SQLException> {
-			connect().use { it.rollback() }
-		}
+	fun `rolls back nothing when no change was saved`() {
+		server.respond(400, """
+			{"messages":[],"result":[],"success":false,"errors":[{"code":7500,
+			"message":"cannot INSERT into generated column \"g\": SQLITE_ERROR"}]}
+		""")
 
-		assertEquals(
-			"D1 has no transactions, so changes were saved as each statement ran and can't be rolled back.",
-			error.message,
-		)
+		connect().use { connection ->
+			connection.autoCommit = false
+			connection.rollback()
+			assertFailsWith<SQLException> { connection.createStatement().executeUpdate("insert into t (g) values (1)") }
+			connection.rollback()
+		}
+	}
+
+	/** Checks that the driver says saved changes can't be undone when asked to roll back. */
+	@Test
+	fun `says saved changes can't be undone when asked to roll back`() {
+		server.respondWithRows(changes = 1)
+
+		connect().use { connection ->
+			connection.createStatement().executeUpdate("update t set a = 1")
+
+			val error = assertFailsWith<SQLException> { connection.rollback() }
+			assertEquals(
+				"D1 has no transactions, so changes were saved as each statement ran and can't be rolled back.",
+				error.message,
+			)
+
+			connection.commit()
+			connection.rollback()
+		}
 	}
 
 	/** Checks that a read-only connection blocks writes before they reach D1. */
