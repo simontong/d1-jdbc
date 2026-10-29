@@ -36,6 +36,9 @@ class D1Connection(
 	private var warnings: SQLWarning? = null
 	private var readOnly = settings.readOnly
 
+	/** The schema, kept for a short time so tools browsing it make few API calls. */
+	internal val schemaCache = SchemaCache(client, Duration.ofSeconds(settings.schemaCacheSeconds))
+
 	/**
 	 * Throws when the connection is closed.
 	 *

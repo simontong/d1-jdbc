@@ -112,7 +112,7 @@ class D1DriverTest {
 	fun `lists the settings an IDE should ask for`() {
 		val settings = D1Driver().getPropertyInfo("jdbc:d1://acc123/db456", Properties())
 
-		assertEquals(listOf("password", "readOnly"), settings.map { it.name })
+		assertEquals(listOf("password", "readOnly", "schemaCacheSeconds"), settings.map { it.name })
 		assertTrue(settings.first().required)
 	}
 
@@ -414,10 +414,6 @@ class D1DriverTest {
 			val tableTypes = metaData.tableTypes
 			val types = generateSequence { if (tableTypes.next()) tableTypes.getString(1) else null }.toList()
 			assertEquals(listOf("TABLE", "VIEW"), types)
-
-			val tables = metaData.getTables(null, null, "%", null)
-			assertEquals(10, tables.metaData.columnCount)
-			assertEquals("TABLE_NAME", tables.metaData.getColumnLabel(3))
 		}
 		assertTrue(server.requests.isEmpty())
 	}

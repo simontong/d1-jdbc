@@ -36,9 +36,111 @@ class D1DatabaseMetaData(
 	 */
 	private fun emptyResult(vararg columns: String): ResultSet = result(columns.toList(), emptyList())
 
+	/**
+	 * Turns a Kotlin value into a JSON value for a metadata row.
+	 *
+	 * @param value text, number, or null
+	 * @return the JSON value
+	 */
+	private fun json(value: Any?): JsonElement {
+		return when (value) {
+			null -> JsonNull
+			is Number -> JsonPrimitive(value)
+			else -> JsonPrimitive(value.toString())
+		}
+	}
+
+	/**
+	 * Builds a result whose rows are lists of Kotlin values.
+	 *
+	 * @param columns column names
+	 * @param rows row values
+	 * @return the result set
+	 */
+	private fun rowsOf(columns: List<String>, rows: List<List<Any?>>): ResultSet {
+		return result(columns, rows.map { row -> row.map { json(it) } })
+	}
+
+	/**
+	 * Says whether a name matches a JDBC search pattern, ignoring case as SQLite does.
+	 *
+	 * @param pattern pattern using `%` and `_`, or null to match everything
+	 * @param name name to check
+	 * @return true when it matches
+	 */
+	private fun matches(pattern: String?, name: String): Boolean {
+		if (pattern == null) {
+			return true
+		}
+		val regex = StringBuilder()
+		var index = 0
+		while (index < pattern.length) {
+			val char = pattern[index]
+			when {
+				char == '\\' && index + 1 < pattern.length -> {
+					index++
+					regex.append(Regex.escape(pattern[index].toString()))
+				}
+
+				char == '%' -> {
+					regex.append(".*")
+				}
+
+				char == '_' -> {
+					regex.append(".")
+				}
+
+				else -> {
+					regex.append(Regex.escape(char.toString()))
+				}
+			}
+			index++
+		}
+		return Regex(regex.toString(), setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)).matches(name)
+	}
+
+	/**
+	 * Finds the tables a metadata call asks about.
+	 *
+	 * @param catalog catalog name, where null or empty match D1's lack of catalogs
+	 * @param schemaPattern schema pattern, which must match `main`
+	 * @param tablePattern table name pattern
+	 * @return matching tables
+	 * @throws SQLException when D1 reports an error
+	 */
+	private fun tables(catalog: String?, schemaPattern: String?, tablePattern: String?): List<SchemaTable> {
+		if (!catalog.isNullOrEmpty() || !matches(schemaPattern, SCHEMA)) {
+			return emptyList()
+		}
+		return connection.schemaCache.get().tables.filter { matches(tablePattern, it.name) }
+	}
+
+	/**
+	 * Lists tables and views, without D1's and SQLite's own tables.
+	 *
+	 * @param catalog catalog name, or null
+	 * @param schemaPattern schema pattern, or null
+	 * @param tableNamePattern table name pattern, or null
+	 * @param types table types to include, or null for all
+	 * @return one row per table, sorted by type and name
+	 * @throws SQLException when D1 reports an error
+	 */
+	override fun getTables(
+		catalog: String?,
+		schemaPattern: String?,
+		tableNamePattern: String?,
+		types: Array<out String>?,
+	): ResultSet {
+		val rows = tables(catalog, schemaPattern, tableNamePattern)
+			.filter { types == null || types.any { type -> type.equals(it.type, ignoreCase = true) } }
+			.sortedWith(compareBy({ it.type }, { it.name.lowercase() }))
+			.map { listOf(null, SCHEMA, it.name, it.type, null, null, null, null, null, null) }
+		return rowsOf(TABLE_COLUMNS, rows)
+	}
+
 	/** @return the one schema D1 has, `main` */
 	override fun getSchemas(): ResultSet {
-		return result(listOf("TABLE_SCHEM", "TABLE_CATALOG"), listOf(listOf(JsonPrimitive("main"), JsonNull)))
+		return result(listOf("TABLE_SCHEM", "TABLE_CATALOG"), listOf(listOf(JsonPrimitive(SCHEMA), JsonNull)))
 	}
 
 	/** @return the one schema D1 has, `main` */
@@ -428,8 +530,6 @@ class D1DatabaseMetaData(
 	/** @return an empty result, filled in once schema browsing is built */
 	override fun getProcedureColumns(p0: String?, p1: String?, p2: String?, p3: String?): ResultSet = emptyResult("PROCEDURE_CAT", "PROCEDURE_SCHEM", "PROCEDURE_NAME", "COLUMN_NAME", "COLUMN_TYPE", "DATA_TYPE", "TYPE_NAME", "PRECISION", "LENGTH", "SCALE", "RADIX", "NULLABLE", "REMARKS", "COLUMN_DEF", "SQL_DATA_TYPE", "SQL_DATETIME_SUB", "CHAR_OCTET_LENGTH", "ORDINAL_POSITION", "IS_NULLABLE", "SPECIFIC_NAME")
 
-	/** @return an empty result, filled in once schema browsing is built */
-	override fun getTables(p0: String?, p1: String?, p2: String?, p3: Array<out String>?): ResultSet = emptyResult("TABLE_CAT", "TABLE_SCHEM", "TABLE_NAME", "TABLE_TYPE", "REMARKS", "TYPE_CAT", "TYPE_SCHEM", "TYPE_NAME", "SELF_REFERENCING_COL_NAME", "REF_GENERATION")
 
 	/** @return an empty result, filled in once schema browsing is built */
 	override fun getCatalogs(): ResultSet = emptyResult("TABLE_CAT")
@@ -581,4 +681,15 @@ class D1DatabaseMetaData(
 	/** @return false */
 	override fun generatedKeyAlwaysReturned(): Boolean = false
 
+
+	private companion object {
+		/** The one schema D1 has. */
+		const val SCHEMA = "main"
+
+		/** Columns of [getTables], in the order JDBC sets. */
+		val TABLE_COLUMNS = listOf(
+			"TABLE_CAT", "TABLE_SCHEM", "TABLE_NAME", "TABLE_TYPE", "REMARKS",
+			"TYPE_CAT", "TYPE_SCHEM", "TYPE_NAME", "SELF_REFERENCING_COL_NAME", "REF_GENERATION",
+		)
+	}
 }

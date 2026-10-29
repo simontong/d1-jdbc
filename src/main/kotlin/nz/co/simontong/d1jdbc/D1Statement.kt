@@ -60,8 +60,13 @@ open class D1Statement(
 	 */
 	private fun send(queries: List<D1Query>): List<D1Result> {
 		checkOpen()
-		if (connection.isReadOnly && queries.any { !isReadOnlySql(it.sql) }) {
+		val writes = queries.any { !isReadOnlySql(it.sql) }
+		if (connection.isReadOnly && writes) {
 			throw SQLException("This connection is read-only, so statements that change data are blocked.", "25006")
+		}
+		if (writes) {
+			// The statement may change the schema, so load it again next time.
+			connection.schemaCache.clear()
 		}
 		if (queryTimeoutSeconds > 0) {
 			return connection.client.execute(queries, Duration.ofSeconds(queryTimeoutSeconds.toLong()))

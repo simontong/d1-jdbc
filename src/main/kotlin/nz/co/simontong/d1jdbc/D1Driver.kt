@@ -70,7 +70,9 @@ class D1Driver : Driver {
 		val readOnly = DriverPropertyInfo("readOnly", info?.getProperty("readOnly") ?: "false")
 		readOnly.description = "Block statements that change data."
 		readOnly.choices = arrayOf("true", "false")
-		return arrayOf(password, readOnly)
+		val schemaCache = DriverPropertyInfo("schemaCacheSeconds", info?.getProperty("schemaCacheSeconds") ?: "30")
+		schemaCache.description = "Seconds to reuse the table list before asking D1 again."
+		return arrayOf(password, readOnly, schemaCache)
 	}
 
 	/** @return the driver's major version */
@@ -109,6 +111,7 @@ class D1Driver : Driver {
  * @property apiToken Cloudflare API token
  * @property apiBaseUrl Cloudflare API base address
  * @property readOnly whether to block statements that change data
+ * @property schemaCacheSeconds how long to reuse the schema once loaded
  */
 data class D1Settings(
 	val accountId: String,
@@ -116,6 +119,7 @@ data class D1Settings(
 	val apiToken: String,
 	val apiBaseUrl: URI,
 	val readOnly: Boolean,
+	val schemaCacheSeconds: Long = 30,
 ) {
 	/**
 	 * Describes the settings without the API token, so it never ends up in logs.
@@ -123,7 +127,8 @@ data class D1Settings(
 	 * @return readable settings text
 	 */
 	override fun toString(): String {
-		return "D1Settings(accountId=$accountId, databaseId=$databaseId, apiBaseUrl=$apiBaseUrl, readOnly=$readOnly)"
+		return "D1Settings(accountId=$accountId, databaseId=$databaseId, apiBaseUrl=$apiBaseUrl, readOnly=$readOnly, " +
+			"schemaCacheSeconds=$schemaCacheSeconds)"
 	}
 
 	companion object {
@@ -159,6 +164,24 @@ data class D1Settings(
 				apiToken = apiToken,
 				apiBaseUrl = URI.create(options["apiBaseUrl"] ?: "https://api.cloudflare.com/client/v4"),
 				readOnly = options["readOnly"].toBoolean(),
+				schemaCacheSeconds = schemaCacheSeconds(options["schemaCacheSeconds"]),
+			)
+		}
+
+		/**
+		 * Reads the schema cache setting.
+		 *
+		 * @param value setting text, or null for the default
+		 * @return seconds to reuse the schema
+		 * @throws SQLException when the value isn't a whole number of zero or more
+		 */
+		private fun schemaCacheSeconds(value: String?): Long {
+			if (value == null) {
+				return 30
+			}
+			return value.trim().toLongOrNull()?.takeIf { it >= 0 } ?: throw SQLNonTransientConnectionException(
+				"schemaCacheSeconds must be a whole number of seconds, 0 or more.",
+				"08001",
 			)
 		}
 

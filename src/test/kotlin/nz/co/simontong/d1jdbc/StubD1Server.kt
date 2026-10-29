@@ -32,6 +32,7 @@ class StubD1Server : AutoCloseable {
 	private var status = 200
 	private var responseBody = ""
 	private var delayMillis = 0L
+	private var handler: ((String) -> Pair<Int, String>)? = null
 
 	/** Every request received, oldest first. */
 	val requests = mutableListOf<RecordedRequest>()
@@ -53,9 +54,10 @@ class StubD1Server : AutoCloseable {
 			if (delayMillis > 0) {
 				Thread.sleep(delayMillis)
 			}
-			val bytes = responseBody.encodeToByteArray()
+			val (replyStatus, replyBody) = handler?.invoke(body) ?: (status to responseBody)
+			val bytes = replyBody.encodeToByteArray()
 			exchange.responseHeaders.add("Content-Type", "application/json")
-			exchange.sendResponseHeaders(status, if (bytes.isEmpty()) -1 else bytes.size.toLong())
+			exchange.sendResponseHeaders(replyStatus, if (bytes.isEmpty()) -1 else bytes.size.toLong())
 			exchange.responseBody.use { it.write(bytes) }
 		}
 		server.start()
@@ -69,9 +71,19 @@ class StubD1Server : AutoCloseable {
 	 * @param delayMillis wait before replying
 	 */
 	fun respond(status: Int, body: String, delayMillis: Long = 0) {
+		this.handler = null
 		this.status = status
 		this.responseBody = body
 		this.delayMillis = delayMillis
+	}
+
+	/**
+	 * Works out the reply to each following request from its body.
+	 *
+	 * @param handler takes the request body and returns the HTTP status and reply body
+	 */
+	fun respondWith(handler: (String) -> Pair<Int, String>) {
+		this.handler = handler
 	}
 
 	/**
