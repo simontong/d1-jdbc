@@ -43,16 +43,50 @@ import kotlinx.serialization.json.int
  * @param statement statement that made the rows, or null for metadata results
  * @param columns column names in order
  * @param rows row values, one list per row
+ * @param findSources works out each column's source table, or null when there's none to find
  */
-class D1ResultSet(
+class D1ResultSet internal constructor(
 	private val statement: D1Statement?,
 	private val columns: List<String>,
 	private val rows: List<List<JsonElement>>,
+	private val findSources: (() -> List<ColumnSource?>?)? = null,
 ) : ResultSet {
 	private var rowIndex = -1
 	private var closed = false
 	private var lastWasNull = false
-	private val kinds by lazy { columns.indices.map { index -> columnKindOf(rows.map { it[index] }) } }
+	private var warnings: SQLWarning? = null
+	private val sources by lazy { readSources() }
+	private val kinds by lazy { columns.indices.map { index -> kindOf(index) } }
+
+	/**
+	 * Works out each column's source table, warning instead of failing when the schema can't be read.
+	 *
+	 * @return one source per column, null where unknown
+	 */
+	private fun readSources(): List<ColumnSource?> {
+		val found = try {
+			findSources?.invoke()
+		} catch (error: SQLException) {
+			warnings = SQLWarning("Could not read the schema, so the columns' tables are unknown. ${error.message}", "01000", error)
+			null
+		}
+		return found ?: columns.map { null }
+	}
+
+	/**
+	 * Works out a column's type from its values, reading whole numbers in a REAL column as decimals.
+	 *
+	 * @param index column position, starting at 0
+	 * @return the column's kind
+	 */
+	private fun kindOf(index: Int): ColumnKind {
+		val fromValues = columnKindOf(rows.map { it[index] })
+		val declared = sources[index]?.column?.let { declaredType(it.declaredType).sqlType }
+		if (fromValues == ColumnKind.INTEGER && declared == java.sql.Types.DOUBLE) {
+			return ColumnKind.REAL
+		}
+		return fromValues
+	}
 
 	/**
 	 * Throws when the result set is closed.
@@ -546,15 +580,16 @@ class D1ResultSet(
 
 	/** Reads a column by name. See the column number version. */
 	override fun <T : Any?> getObject(columnLabel: String?, type: Class<T>?): T? = getObject(findColumn(columnLabel), type)
-	/** @return null, as result sets raise no warnings */
+	/** @return warnings raised while reading the result, or null */
 	override fun getWarnings(): SQLWarning? {
 		checkOpen()
-		return null
+		return warnings
 	}
 
-	/** Does nothing, as result sets raise no warnings. */
+	/** Removes the result set's warnings. */
 	override fun clearWarnings() {
 		checkOpen()
+		warnings = null
 	}
 
 	/** Not supported. */
@@ -563,7 +598,7 @@ class D1ResultSet(
 	/** @return column details for these rows */
 	override fun getMetaData(): ResultSetMetaData {
 		checkOpen()
-		return D1ResultSetMetaData(columns, kinds)
+		return D1ResultSetMetaData(columns, kinds, sources)
 	}
 
 	/** @return true when the cursor is before the first row and there are rows */

@@ -2,16 +2,19 @@ package nz.co.simontong.d1jdbc
 
 import java.sql.ResultSetMetaData
 import java.sql.SQLException
+import java.sql.Types
 
 /**
  * Column details for rows returned by D1.
  *
  * @param columns column names in order
  * @param kinds each column's type, worked out from its values
+ * @param sources each column's source table, null where unknown
  */
 class D1ResultSetMetaData internal constructor(
 	private val columns: List<String>,
 	private val kinds: List<ColumnKind>,
+	private val sources: List<ColumnSource?> = columns.map { null },
 ) : ResultSetMetaData {
 	/**
 	 * Throws when the column number is out of range.
@@ -26,7 +29,7 @@ class D1ResultSetMetaData internal constructor(
 	}
 
 	/**
-	 * Returns a column's type.
+	 * Returns a column's type worked out from its values.
 	 *
 	 * @param column column number
 	 * @return the column's kind
@@ -37,13 +40,50 @@ class D1ResultSetMetaData internal constructor(
 		return kinds[column - 1]
 	}
 
+	/**
+	 * Returns where a column's values come from.
+	 *
+	 * @param column column number
+	 * @return the source, or null when unknown
+	 * @throws SQLException when the column doesn't exist
+	 */
+	private fun source(column: Int): ColumnSource? {
+		checkColumn(column)
+		return sources[column - 1]
+	}
+
+	/**
+	 * Returns a column's declared type, or the row ID's type.
+	 *
+	 * @param column column number
+	 * @return the declared type, or null when the source is unknown or has no declared type
+	 * @throws SQLException when the column doesn't exist
+	 */
+	private fun declared(column: Int): DeclaredType? {
+		val source = source(column) ?: return null
+		val declaredText = source.column?.declaredType ?: "INTEGER"
+		return declaredText.takeIf { it.isNotBlank() }?.let { declaredType(it) }
+	}
+
+	/**
+	 * Says whether an IDE can change a column's values with UPDATE.
+	 *
+	 * @param column column number
+	 * @return true for a table column that isn't generated
+	 * @throws SQLException when the column doesn't exist
+	 */
+	private fun canWrite(column: Int): Boolean {
+		val source = source(column) ?: return false
+		return source.table.type == "TABLE" && source.column != null && !source.column.generated
+	}
+
 	/** @return number of columns */
 	override fun getColumnCount(): Int = columns.size
 
-	/** @return false, as this isn't known from the reply */
+	/** @return true for the row ID and for a column that is an alias for it */
 	override fun isAutoIncrement(column: Int): Boolean {
-		checkColumn(column)
-		return false
+		val source = source(column) ?: return false
+		return source.column == null || source.column == source.table.rowIdAlias
 	}
 
 	/** @return true for text columns */
@@ -61,14 +101,19 @@ class D1ResultSetMetaData internal constructor(
 		return false
 	}
 
-	/** @return [ResultSetMetaData.columnNullableUnknown], as this isn't known from the reply */
+	/** @return whether the column allows NULL, or unknown when its table isn't known */
 	override fun isNullable(column: Int): Int {
-		checkColumn(column)
-		return ResultSetMetaData.columnNullableUnknown
+		val source = source(column) ?: return ResultSetMetaData.columnNullableUnknown
+		val sourceColumn = source.column ?: return ResultSetMetaData.columnNoNulls
+		val notNull = sourceColumn.notNull || sourceColumn == source.table.rowIdAlias
+		return if (notNull) ResultSetMetaData.columnNoNulls else ResultSetMetaData.columnNullable
 	}
 
 	/** @return true for number columns */
-	override fun isSigned(column: Int): Boolean = kind(column) in setOf(ColumnKind.INTEGER, ColumnKind.REAL)
+	override fun isSigned(column: Int): Boolean {
+		val type = declared(column)?.sqlType ?: kind(column).sqlType
+		return type in setOf(Types.BIGINT, Types.DOUBLE, Types.NUMERIC)
+	}
 
 	/** @return a display width wide enough for most values */
 	override fun getColumnDisplaySize(column: Int): Int {
@@ -82,32 +127,23 @@ class D1ResultSetMetaData internal constructor(
 		return columns[column - 1]
 	}
 
-	/** @return the column name as returned by D1 */
-	override fun getColumnName(column: Int): String = getColumnLabel(column)
-
-	/** @return an empty string, as the source table isn't known from the reply */
-	override fun getSchemaName(column: Int): String {
-		checkColumn(column)
-		return ""
+	/** @return the table column's name, or the label when the source is unknown */
+	override fun getColumnName(column: Int): String {
+		val source = source(column) ?: return getColumnLabel(column)
+		return source.column?.name ?: "rowid"
 	}
 
-	/** @return 0, as precision isn't known from the reply */
-	override fun getPrecision(column: Int): Int {
-		checkColumn(column)
-		return 0
-	}
+	/** @return `main` when the source table is known, otherwise an empty string */
+	override fun getSchemaName(column: Int): String = if (source(column) != null) "main" else ""
 
-	/** @return 0, as scale isn't known from the reply */
-	override fun getScale(column: Int): Int {
-		checkColumn(column)
-		return 0
-	}
+	/** @return the size in the declared type, or 0 */
+	override fun getPrecision(column: Int): Int = declared(column)?.size ?: 0
 
-	/** @return an empty string, as the source table isn't known from the reply */
-	override fun getTableName(column: Int): String {
-		checkColumn(column)
-		return ""
-	}
+	/** @return the digits after the point in the declared type, or 0 */
+	override fun getScale(column: Int): Int = declared(column)?.decimalDigits ?: 0
+
+	/** @return the source table's name, or an empty string when unknown */
+	override fun getTableName(column: Int): String = source(column)?.table?.name ?: ""
 
 	/** @return an empty string, as D1 has no catalogs */
 	override fun getCatalogName(column: Int): String {
@@ -115,25 +151,19 @@ class D1ResultSetMetaData internal constructor(
 		return ""
 	}
 
-	/** @return the [java.sql.Types] constant for the column's values */
-	override fun getColumnType(column: Int): Int = kind(column).sqlType
+	/** @return the [Types] constant for the declared type, or for the column's values */
+	override fun getColumnType(column: Int): Int = declared(column)?.sqlType ?: kind(column).sqlType
 
-	/** @return the SQLite type name for the column's values */
-	override fun getColumnTypeName(column: Int): String = kind(column).typeName
+	/** @return the declared type's name, or the SQLite type name for the column's values */
+	override fun getColumnTypeName(column: Int): String = declared(column)?.name ?: kind(column).typeName
 
-	/** @return true, as these result sets can't be changed */
-	override fun isReadOnly(column: Int): Boolean {
-		checkColumn(column)
-		return true
-	}
+	/** @return false for a table column that isn't generated, true otherwise */
+	override fun isReadOnly(column: Int): Boolean = !canWrite(column)
 
-	/** @return false, as these result sets can't be changed */
-	override fun isWritable(column: Int): Boolean {
-		checkColumn(column)
-		return false
-	}
+	/** @return true for a table column that isn't generated */
+	override fun isWritable(column: Int): Boolean = canWrite(column)
 
-	/** @return false, as these result sets can't be changed */
+	/** @return false, as a write can still fail on a constraint */
 	override fun isDefinitelyWritable(column: Int): Boolean {
 		checkColumn(column)
 		return false

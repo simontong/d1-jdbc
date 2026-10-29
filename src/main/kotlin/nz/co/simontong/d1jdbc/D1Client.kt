@@ -104,13 +104,19 @@ class D1Client(
 		}
 
 		val body = parseBody(response)
-		try {
-			return readReply(response.statusCode(), body)
+		val results = try {
+			readReply(response.statusCode(), body)
 		} catch (error: NoSuchElementException) {
 			throw unreadableReply(response, error)
 		} catch (error: IllegalArgumentException) {
 			throw unreadableReply(response, error)
 		}
+
+		// A single statement can hold several, but a batch gives exactly one result per statement.
+		if (statements.size > 1 && results.size != statements.size) {
+			throw unreadableReply(response, null)
+		}
+		return results
 	}
 
 	/**

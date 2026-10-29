@@ -116,6 +116,8 @@ class SqliteD1(server: StubD1Server) : AutoCloseable {
 	private fun jsonValue(value: Any?): JsonElement {
 		return when (value) {
 			null -> JsonNull
+			// D1 sends a whole REAL like 1.0 as 1, as recorded in docs/research/live-tests.md.
+			is Double -> if (value % 1.0 == 0.0 && value.isFinite()) JsonPrimitive(value.toLong()) else JsonPrimitive(value)
 			is Number -> JsonPrimitive(value)
 			is ByteArray -> JsonArray(value.map { JsonPrimitive(it.toInt() and 0xFF) })
 			else -> JsonPrimitive(value.toString())

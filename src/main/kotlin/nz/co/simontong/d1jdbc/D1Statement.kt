@@ -18,6 +18,7 @@ open class D1Statement(
 ) : Statement {
 	private var closed = false
 	private var results: List<D1Result> = emptyList()
+	private var resultQueries: List<D1Query> = emptyList()
 	private var resultIndex = 0
 	private var currentResultSet: D1ResultSet? = null
 	private var maxRows = 0
@@ -47,6 +48,8 @@ open class D1Statement(
 	protected fun run(queries: List<D1Query>): Boolean {
 		closeCurrentResultSet()
 		results = send(queries)
+		// SQL holding several statements gives several results, which can't be matched to their SQL.
+		resultQueries = if (results.size == queries.size) queries else emptyList()
 		resultIndex = 0
 		return openCurrentResult()
 	}
@@ -85,7 +88,9 @@ open class D1Statement(
 			return false
 		}
 		val rows = if (maxRows > 0) result.rows.take(maxRows) else result.rows
-		currentResultSet = D1ResultSet(this, result.columns, rows)
+		val sql = resultQueries.getOrNull(resultIndex)?.sql
+		val findSources = sql?.let { { columnSources(it, result.columns.size, connection.schemaCache.get()) } }
+		currentResultSet = D1ResultSet(this, result.columns, rows, findSources)
 		return true
 	}
 

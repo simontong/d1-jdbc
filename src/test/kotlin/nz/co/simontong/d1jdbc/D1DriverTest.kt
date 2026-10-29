@@ -67,7 +67,7 @@ class D1DriverTest {
 			}
 		}
 
-		val request = server.requests.single()
+		val request = server.requests.first()
 		assertEquals("/client/v4/accounts/acc123/d1/database/db456/raw", request.path)
 		assertEquals("Bearer secret-token", request.authorization)
 		assertEquals(
