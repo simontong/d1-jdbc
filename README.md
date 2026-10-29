@@ -16,6 +16,8 @@ It's written in Kotlin and ships as one jar with everything it needs inside it.
 
 You'll need a Cloudflare API token, your account ID and your database ID.
 
+The quickest way is the Cloudflare D1 Driver plugin, which adds D1 to the list of data sources and downloads the driver for you. Install it from the plugin jar on the releases page with Settings | Plugins | ⚙ | Install Plugin from Disk, then skip step 2 below and pick Cloudflare D1 when you add a data source.
+
 ### 1. Make an API token
 
 Open this link while logged in to Cloudflare. It fills in a token with D1 Edit permission, and you just pick your account and create it.
@@ -77,7 +79,13 @@ You need Java 17 or newer.
 ./gradlew build
 ```
 
-The jar is `build/libs/d1-jdbc-<version>-all.jar`.
+The driver jar is `build/libs/d1-jdbc-<version>-all.jar`, and the IDE plugin is `ide-plugin/build/libs/d1-jdbc-ide-plugin-<version>.jar`.
+
+The plugin downloads the driver from the GitHub release with the same version. To try it before a release, point it at a local driver jar instead.
+
+```sh
+./gradlew build :ide-plugin:pluginJar -PdriverJarUrl=file://$PWD/build/libs/d1-jdbc-0.0.0-all.jar
+```
 
 The tests run against a stub server and an in-memory SQLite database. To run the live tests too, copy `.env.example` to `.env` and fill in a throwaway database's details. The live tests create and drop their own tables.
 

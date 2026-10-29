@@ -154,7 +154,7 @@ class D1SchemaTest {
 		}
 	}
 
-	/** Checks that the driver lists foreign keys from both ends, filling in an implied parent column. */
+	/** Checks that foreign keys list from both ends, filling in implied parent columns. */
 	@Test
 	fun `lists foreign keys from both ends`() {
 		database.setUp("create table remark (pid integer references parent on update set null)")
@@ -188,7 +188,7 @@ class D1SchemaTest {
 		}
 	}
 
-	/** Checks that browsing the schema reuses one load, and a schema change through the driver reloads it. */
+	/** Checks that browsing reuses one schema load, and a schema change makes it load again. */
 	@Test
 	fun `reuses the loaded schema until something changes it`() {
 		server.connect().use { connection ->

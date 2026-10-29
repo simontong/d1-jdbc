@@ -149,7 +149,7 @@ class LiveD1ClientTest {
 		}
 	}
 
-	/** Checks a grid edit on the real database: read, update one row, then insert and get its ID. */
+	/** Checks a grid edit on the real database: read, update a row, then insert and get its ID. */
 	@Test
 	fun `edits rows in the real database the way an IDE grid does`() {
 		val token = settings["D1_TEST_API_TOKEN"].orEmpty()

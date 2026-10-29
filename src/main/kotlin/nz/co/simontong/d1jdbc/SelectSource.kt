@@ -179,7 +179,7 @@ private fun depths(tokens: List<Token>): List<Int> {
  * @param sql SQL that made the result
  * @param columnCount number of result columns
  * @param schema the database schema
- * @return one source per result column, null where unknown, or null when the SQL isn't a one-table SELECT
+ * @return one source per result column, null where unknown, or null if not a one-table SELECT
  */
 internal fun columnSources(sql: String, columnCount: Int, schema: D1Schema): List<ColumnSource?>? {
 	val all = tokens(sql).dropLastWhile { it.kind == TokenKind.SYMBOL && it.text == ";" }

@@ -59,7 +59,7 @@ class D1ResultSet internal constructor(
 	private val kinds by lazy { columns.indices.map { index -> kindOf(index) } }
 
 	/**
-	 * Works out each column's source table, warning instead of failing when the schema can't be read.
+	 * Works out each column's source table, warning instead of failing if the schema can't load.
 	 *
 	 * @return one source per column, null where unknown
 	 */
@@ -74,7 +74,7 @@ class D1ResultSet internal constructor(
 	}
 
 	/**
-	 * Works out a column's type from its values, reading whole numbers in a REAL column as decimals.
+	 * Works out a column's type from its values, reading whole numbers in REAL columns as decimals.
 	 *
 	 * @param index column position, starting at 0
 	 * @return the column's kind

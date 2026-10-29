@@ -52,7 +52,7 @@ internal data class SchemaIndex(
  * One foreign key on a table.
  *
  * @property parentTable table the key refers to
- * @property columns child and parent column pairs in order, where the parent is null for its primary key
+ * @property columns child and parent column pairs, where a null parent means its primary key
  * @property onUpdate ON UPDATE action, like `CASCADE`
  * @property onDelete ON DELETE action, like `CASCADE`
  */

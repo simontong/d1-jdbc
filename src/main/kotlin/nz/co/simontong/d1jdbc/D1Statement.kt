@@ -61,7 +61,7 @@ open class D1Statement(
 		if (wantKeys && inserted != null) {
 			generatedKeys = listOf(inserted.lastRowId)
 		}
-		// SQL holding several statements gives several results, which can't be matched to their SQL.
+		// Several statements in one SQL string give results that can't be matched to their SQL.
 		resultQueries = if (results.size == queries.size) queries else emptyList()
 		resultIndex = 0
 		return openCurrentResult()

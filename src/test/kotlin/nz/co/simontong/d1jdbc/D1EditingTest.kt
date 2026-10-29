@@ -10,7 +10,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Tests what an IDE needs to edit rows in a result grid, against a SQLite database standing in for D1.
+ * Tests what an IDE needs to edit rows in a result grid, using SQLite in place of D1.
  */
 class D1EditingTest {
 	private val server = StubD1Server()
@@ -101,7 +101,7 @@ class D1EditingTest {
 		}
 	}
 
-	/** Checks that results not made of one table's rows name no table, so the IDE won't edit them. */
+	/** Checks that results not made of one table's rows name no table, so they can't be edited. */
 	@Test
 	fun `names no table when rows don't come from one table`() {
 		val queries = listOf(
@@ -148,7 +148,7 @@ class D1EditingTest {
 		}
 	}
 
-	/** Checks that a query still reads when the schema can't be loaded, with a warning saying why. */
+	/** Checks that a query still reads when the schema can't load, with a warning saying why. */
 	@Test
 	fun `warns when the schema can't be loaded`() {
 		server.connect().use { connection ->
