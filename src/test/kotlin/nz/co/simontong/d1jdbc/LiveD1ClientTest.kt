@@ -148,6 +148,49 @@ class LiveD1ClientTest {
 			}
 		}
 	}
+
+	/** Checks a grid edit on the real database: read, update one row, then insert and get its ID. */
+	@Test
+	fun `edits rows in the real database the way an IDE grid does`() {
+		val token = settings["D1_TEST_API_TOKEN"].orEmpty()
+		assumeTrue(token.isNotBlank(), "No D1_TEST_API_TOKEN in .env, so the live test is skipped")
+		val properties = Properties()
+		properties["password"] = token
+		val url = "jdbc:d1://${settings.getValue("D1_TEST_ACCOUNT_ID")}/${settings.getValue("D1_TEST_DATABASE_ID")}"
+
+		DriverManager.getConnection(url, properties).use { connection ->
+			val statement = connection.createStatement()
+			statement.executeUpdate("drop table if exists live_grid")
+			statement.executeUpdate("create table live_grid (id integer primary key, name text not null, price real)")
+			try {
+				statement.executeUpdate("insert into live_grid (name, price) values ('tea', 4), ('cake', 5.5)")
+
+				val rows = statement.executeQuery("SELECT t.* FROM live_grid t LIMIT 501")
+				assertEquals("live_grid", rows.metaData.getTableName(2))
+				assertEquals(true, rows.metaData.isWritable(2))
+				assertTrue(rows.next())
+				assertEquals(4.0, rows.getObject("price"))
+
+				val update = connection.prepareStatement("update live_grid set name = ? where id = ?")
+				update.setString(1, "green tea")
+				update.setLong(2, rows.getLong("id"))
+				assertEquals(1, update.executeUpdate())
+
+				val insert = connection.prepareStatement(
+					"insert into live_grid (name, price) values (?, ?)",
+					java.sql.Statement.RETURN_GENERATED_KEYS,
+				)
+				insert.setString(1, "pie")
+				insert.setDouble(2, 6.0)
+				assertEquals(1, insert.executeUpdate())
+				val keys = insert.generatedKeys
+				assertTrue(keys.next())
+				assertEquals(3L, keys.getLong(1))
+			} finally {
+				statement.executeUpdate("drop table live_grid")
+			}
+		}
+	}
 }
 
 /**
