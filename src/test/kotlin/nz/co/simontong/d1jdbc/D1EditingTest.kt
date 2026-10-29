@@ -1,10 +1,13 @@
 package nz.co.simontong.d1jdbc
 
 import java.sql.ResultSetMetaData
+import java.sql.Statement
 import java.sql.Types
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 /**
  * Tests what an IDE needs to edit rows in a result grid, against a SQLite database standing in for D1.
@@ -117,6 +120,31 @@ class D1EditingTest {
 				val rows = connection.createStatement().executeQuery(sql)
 				assertEquals("", rows.metaData.getTableName(1), sql)
 			}
+		}
+	}
+
+	/** Checks that an insert can return the new row's ID, which D1 reports as the last row ID. */
+	@Test
+	fun `returns the new row's ID after an insert`() {
+		server.connect().use { connection ->
+			val statement = connection.createStatement()
+			assertEquals(1, statement.executeUpdate("insert into item (name) values ('jam')", Statement.RETURN_GENERATED_KEYS))
+			val keys = statement.generatedKeys
+			assertTrue(keys.next())
+			assertEquals(3L, keys.getLong(1))
+			assertFalse(keys.next())
+
+			val prepared = connection.prepareStatement("insert into loose values (?)", Statement.RETURN_GENERATED_KEYS)
+			prepared.setString(1, "b")
+			prepared.executeUpdate()
+			val preparedKeys = prepared.generatedKeys
+			assertTrue(preparedKeys.next())
+			assertEquals(2L, preparedKeys.getLong(1))
+
+			statement.executeUpdate("update item set name = 'x' where id = 99", Statement.RETURN_GENERATED_KEYS)
+			assertFalse(statement.generatedKeys.next())
+			statement.executeUpdate("insert into item (name) values ('pie')")
+			assertFalse(statement.generatedKeys.next())
 		}
 	}
 

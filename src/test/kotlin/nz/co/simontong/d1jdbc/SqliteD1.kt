@@ -93,6 +93,7 @@ class SqliteD1(server: StubD1Server) : AutoCloseable {
 				}
 			}
 			val changes = if (hasRows) 0 else prepared.updateCount
+			val lastRowId = sqlite.createStatement().use { it.executeQuery("select last_insert_rowid()").getLong(1) }
 			return buildJsonObject {
 				put("results", buildJsonObject {
 					put("columns", JsonArray(columns))
@@ -101,7 +102,7 @@ class SqliteD1(server: StubD1Server) : AutoCloseable {
 				put("success", true)
 				put("meta", buildJsonObject {
 					put("changes", changes)
-					put("last_row_id", 0)
+					put("last_row_id", lastRowId)
 				})
 			}
 		}

@@ -899,8 +899,8 @@ class D1DatabaseMetaData(
 	/** @return false */
 	override fun supportsMultipleOpenResults(): Boolean = false
 
-	/** @return false */
-	override fun supportsGetGeneratedKeys(): Boolean = false
+	/** @return true, as an INSERT can return the new row's ID */
+	override fun supportsGetGeneratedKeys(): Boolean = true
 
 	/** @return an empty result, filled in once schema browsing is built */
 	override fun getSuperTypes(p0: String?, p1: String?, p2: String?): ResultSet = emptyResult("TYPE_CAT", "TYPE_SCHEM", "TYPE_NAME", "SUPERTYPE_CAT", "SUPERTYPE_SCHEM", "SUPERTYPE_NAME")

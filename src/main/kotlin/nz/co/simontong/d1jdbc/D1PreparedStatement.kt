@@ -53,11 +53,14 @@ private data class BoundValue(
  *
  * @param connection connection the statement belongs to
  * @param sql SQL text with `?` or `?NNN` placeholders
+ * @param returnGeneratedKeys whether to keep the new row's ID after an INSERT
  */
 class D1PreparedStatement(
 	connection: D1Connection,
 	sql: String,
+	returnGeneratedKeys: Boolean = false,
 ) : D1Statement(connection), PreparedStatement {
+	override val alwaysReturnKeys = returnGeneratedKeys
 	private val preparedSql = PreparedSql(sql)
 	private val values = mutableMapOf<Int, BoundValue>()
 
