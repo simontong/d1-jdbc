@@ -61,3 +61,7 @@ tasks.processResources {
 tasks.buildPlugin {
 	archiveBaseName = "d1-jdbc-ide-plugin"
 }
+
+tasks.assemble {
+	dependsOn(tasks.buildPlugin)
+}

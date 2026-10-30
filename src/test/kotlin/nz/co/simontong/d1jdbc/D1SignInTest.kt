@@ -256,6 +256,9 @@ class D1SignInTest {
 		connect("jdbc:d1://acc-b?auth=browser").use { connection ->
 			assertEquals("blog", connection.catalog)
 		}
+		connect("jdbc:d1://all?auth=browser").use { connection ->
+			assertEquals("Alpha / shop", connection.catalog)
+		}
 		val error = assertFailsWith<SQLException> { connect("jdbc:d1://acc-c?auth=browser") }
 		assertEquals("28000", error.sqlState)
 		assertTrue(error.message.orEmpty().startsWith("The Cloudflare sign-in doesn't include account acc-c."))
@@ -271,6 +274,18 @@ class D1SignInTest {
 		connect().close()
 		connect("jdbc:d1://?auth=browser&openBrowser=false").close()
 		assertEquals(1, opened.size)
+	}
+
+	/** Checks an API token with "all" in place of an account ID says to give the ID. */
+	@Test
+	fun `asks for the account ID when an API token has none`() {
+		val error = assertFailsWith<SQLException> { api.connect("jdbc:d1://all") }
+
+		assertEquals(
+			"An API token needs your Cloudflare account ID. Put it in the Account field, or in the URL like "
+				+ "jdbc:d1://<account id>.",
+			error.message,
+		)
 	}
 
 	/** Checks a sign-in with no ticked accounts says what to do. */

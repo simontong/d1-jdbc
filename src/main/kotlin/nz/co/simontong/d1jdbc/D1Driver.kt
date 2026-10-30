@@ -216,6 +216,9 @@ data class D1Settings(
 		/** Host names that mean this computer. */
 		private val LOCAL_HOSTS = setOf("127.0.0.1", "localhost", "[::1]")
 
+		/** The account part that means every account a sign-in reaches. */
+		private const val ALL_ACCOUNTS = "all"
+
 		/** Characters an account ID may hold. */
 		private val ID_PATTERN = Regex("""^[A-Za-z0-9-]*$""")
 
@@ -253,7 +256,9 @@ data class D1Settings(
 				"The D1 URL must look like jdbc:d1://<account id> or jdbc:d1://<account id>/<database id or name>.",
 				"08001",
 			)
-			val (accountId, databaseId, query) = match.destructured
+			val (accountPart, databaseId, query) = match.destructured
+			// "all" stands for every account a sign-in reaches, as IDEs need some text in the URL.
+			val accountId = if (accountPart.equals(ALL_ACCOUNTS, ignoreCase = true)) "" else accountPart
 			if (!ID_PATTERN.matches(accountId)) {
 				throw SQLNonTransientConnectionException("The account ID can only hold letters, numbers and dashes.", "08001")
 			}
@@ -283,7 +288,8 @@ data class D1Settings(
 			}
 			if (auth == D1Auth.TOKEN && accountId.isEmpty()) {
 				throw SQLNonTransientConnectionException(
-					"The D1 URL needs your Cloudflare account ID, like jdbc:d1://<account id>, when using an API token.",
+					"An API token needs your Cloudflare account ID. Put it in the Account field, or in the URL like "
+						+ "jdbc:d1://<account id>.",
 					"08001",
 				)
 			}
