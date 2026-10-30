@@ -10,7 +10,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Tests a connection that reaches every D1 database in the account, with SQLite standing in for each.
+ * Tests a connection that reaches every D1 database in the account, using SQLite for each.
  */
 class D1DatabasesTest {
 	private val server = StubD1Server()
