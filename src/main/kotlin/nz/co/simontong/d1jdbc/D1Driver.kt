@@ -35,7 +35,6 @@ class D1Driver : Driver {
 		val settings = D1Settings.parse(url, info ?: Properties())
 		val client = D1Client(
 			accountId = settings.accountId,
-			databaseId = settings.databaseId,
 			apiToken = settings.apiToken,
 			baseUri = settings.apiBaseUrl,
 		)
@@ -107,7 +106,7 @@ class D1Driver : Driver {
  * Connection settings read from the JDBC URL and properties.
  *
  * @property accountId Cloudflare account ID
- * @property databaseId D1 database ID
+ * @property databaseId D1 database to start on, or null to choose one later
  * @property apiToken Cloudflare API token
  * @property apiBaseUrl Cloudflare API base address
  * @property readOnly whether to block statements that change data
@@ -115,7 +114,7 @@ class D1Driver : Driver {
  */
 data class D1Settings(
 	val accountId: String,
-	val databaseId: String,
+	val databaseId: String?,
 	val apiToken: String,
 	val apiBaseUrl: URI,
 	val readOnly: Boolean,
@@ -132,7 +131,7 @@ data class D1Settings(
 	}
 
 	companion object {
-		private val URL_PATTERN = Regex("""^jdbc:d1://([^/?]+)/([^/?]+)/?(?:\?(.*))?$""")
+		private val URL_PATTERN = Regex("""^jdbc:d1://([^/?]+)(?:/([^/?]*))?/?(?:\?(.*))?$""")
 
 		/**
 		 * Reads settings from a URL and properties, with properties taking priority.
@@ -144,7 +143,7 @@ data class D1Settings(
 		 */
 		fun parse(url: String, info: Properties): D1Settings {
 			val match = URL_PATTERN.matchEntire(url) ?: throw SQLNonTransientConnectionException(
-				"The D1 URL must look like jdbc:d1://<account id>/<database id>.",
+				"The D1 URL must look like jdbc:d1://<account id> or jdbc:d1://<account id>/<database id>.",
 				"08001",
 			)
 			val (accountId, databaseId, query) = match.destructured
@@ -160,7 +159,7 @@ data class D1Settings(
 
 			return D1Settings(
 				accountId = accountId,
-				databaseId = databaseId,
+				databaseId = databaseId.ifEmpty { null },
 				apiToken = apiToken,
 				apiBaseUrl = URI.create(options["apiBaseUrl"] ?: "https://api.cloudflare.com/client/v4"),
 				readOnly = options["readOnly"].toBoolean(),

@@ -159,12 +159,13 @@ private fun records(result: D1Result): List<Map<String, JsonElement>> {
 /**
  * Loads the whole schema in two requests, as Cloudflare limits how many API calls an account makes.
  *
- * @param client client for the database
+ * @param client client for the account
+ * @param databaseId database to read
  * @return the schema
  * @throws java.sql.SQLException when D1 reports an error
  */
-internal fun loadSchema(client: D1Client): D1Schema {
-	val (tableList, schemaList) = client.execute(listOf(
+internal fun loadSchema(client: D1Client, databaseId: String): D1Schema {
+	val (tableList, schemaList) = client.execute(databaseId, listOf(
 		D1Query("pragma table_list"),
 		D1Query("select type, name, tbl_name, sql from sqlite_schema where type in ('table', 'index')"),
 	))
@@ -188,7 +189,7 @@ internal fun loadSchema(client: D1Client): D1Schema {
 		queries += D1Query("pragma foreign_key_list($name)")
 	}
 	indexNames.forEach { queries += D1Query("pragma index_xinfo(${quoted(it)})") }
-	val results = queries.chunked(STATEMENTS_PER_REQUEST).flatMap { client.execute(it) }
+	val results = queries.chunked(STATEMENTS_PER_REQUEST).flatMap { client.execute(databaseId, it) }
 
 	val indexColumns = indexNames.indices.associate { index ->
 		val columns = records(results[found.size * 3 + index])
@@ -274,12 +275,14 @@ private fun readForeignKeys(result: D1Result, named: List<NamedForeignKey>): Lis
 /**
  * Keeps the schema for a short time, so a tool reading it table by table makes only two requests.
  *
- * @param client client for the database
+ * @param client client for the account
+ * @param databaseId database the schema belongs to
  * @param maxAge how long a loaded schema is reused
  * @param clock returns the current time in nanoseconds
  */
 internal class SchemaCache(
 	private val client: D1Client,
+	private val databaseId: String,
 	private val maxAge: Duration,
 	private val clock: () -> Long = System::nanoTime,
 ) {
@@ -297,7 +300,7 @@ internal class SchemaCache(
 		if (cached != null && clock() - loadedAt < maxAge.toNanos()) {
 			return cached
 		}
-		val loaded = loadSchema(client)
+		val loaded = loadSchema(client, databaseId)
 		schema = loaded
 		loadedAt = clock()
 		return loaded

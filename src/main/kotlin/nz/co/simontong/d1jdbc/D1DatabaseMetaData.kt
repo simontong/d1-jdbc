@@ -102,19 +102,21 @@ class D1DatabaseMetaData(
 	}
 
 	/**
-	 * Finds the tables a metadata call asks about.
+	 * Finds the tables a metadata call asks about, each with its database name.
 	 *
-	 * @param catalog catalog name, where null or empty match D1's lack of catalogs
+	 * @param catalog database name, or null for the chosen database
 	 * @param schemaPattern schema pattern, which must match `main`
 	 * @param tablePattern table name pattern
-	 * @return matching tables
+	 * @return matching tables, sorted by database name
 	 * @throws SQLException when D1 reports an error
 	 */
-	private fun tables(catalog: String?, schemaPattern: String?, tablePattern: String?): List<SchemaTable> {
-		if (!catalog.isNullOrEmpty() || !matches(schemaPattern, SCHEMA)) {
+	private fun tables(catalog: String?, schemaPattern: String?, tablePattern: String?): List<Pair<String, SchemaTable>> {
+		if (!matches(schemaPattern, SCHEMA)) {
 			return emptyList()
 		}
-		return connection.schemaCache.get().tables.filter { matches(tablePattern, it.name) }
+		return connection.schemasFor(catalog).flatMap { (name, schema) ->
+			schema.tables.filter { matches(tablePattern, it.name) }.map { name to it }
+		}
 	}
 
 	/**
@@ -134,9 +136,9 @@ class D1DatabaseMetaData(
 		types: Array<out String>?,
 	): ResultSet {
 		val rows = tables(catalog, schemaPattern, tableNamePattern)
-			.filter { types == null || types.any { type -> type.equals(it.type, ignoreCase = true) } }
-			.sortedWith(compareBy({ it.type }, { it.name.lowercase() }))
-			.map { listOf(null, SCHEMA, it.name, it.type, null, null, null, null, null, null) }
+			.filter { (_, table) -> types == null || types.any { type -> type.equals(table.type, ignoreCase = true) } }
+			.sortedWith(compareBy({ it.second.type }, { it.first.lowercase() }, { it.second.name.lowercase() }))
+			.map { (name, table) -> listOf(name, SCHEMA, table.name, table.type, null, null, null, null, null, null) }
 		return rowsOf(TABLE_COLUMNS, rows)
 	}
 
@@ -156,7 +158,7 @@ class D1DatabaseMetaData(
 		tableNamePattern: String?,
 		columnNamePattern: String?,
 	): ResultSet {
-		val rows = tables(catalog, schemaPattern, tableNamePattern).flatMap { table ->
+		val rows = tables(catalog, schemaPattern, tableNamePattern).flatMap { (catalogName, table) ->
 			table.columns.mapIndexedNotNull { index, column ->
 				if (!matches(columnNamePattern, column.name)) {
 					return@mapIndexedNotNull null
@@ -167,7 +169,7 @@ class D1DatabaseMetaData(
 				// JetBrains IDEs read a missing size as 0 and show TEXT(0), but read -1 as no size.
 				val size = type.size ?: -1
 				listOf(
-					null, SCHEMA, table.name, column.name, type.sqlType, type.name, size, null,
+					catalogName, SCHEMA, table.name, column.name, type.sqlType, type.name, size, null,
 					type.decimalDigits, if (numeric) 10 else null,
 					if (notNull) DatabaseMetaData.columnNoNulls else DatabaseMetaData.columnNullable,
 					null, column.defaultValue, null, null, null, index + 1, if (notNull) "NO" else "YES",
@@ -183,17 +185,17 @@ class D1DatabaseMetaData(
 	/**
 	 * Finds the one table a metadata call names exactly.
 	 *
-	 * @param catalog catalog name, or null
+	 * @param catalog database name, or null for the chosen database
 	 * @param schema schema name, or null
 	 * @param table table name, matched ignoring case
-	 * @return the table, or null when there's no such table
+	 * @return the database name and table, or null when there's no such table
 	 * @throws SQLException when D1 reports an error
 	 */
-	private fun table(catalog: String?, schema: String?, table: String?): SchemaTable? {
-		if (!catalog.isNullOrEmpty() || (schema != null && !schema.equals(SCHEMA, ignoreCase = true)) || table == null) {
+	private fun table(catalog: String?, schema: String?, table: String?): Pair<String, SchemaTable>? {
+		if ((schema != null && !schema.equals(SCHEMA, ignoreCase = true)) || table == null) {
 			return null
 		}
-		return connection.schemaCache.get().table(table)
+		return connection.schemasFor(catalog).firstNotNullOfOrNull { (name, found) -> found.table(table)?.let { name to it } }
 	}
 
 	/**
@@ -206,11 +208,11 @@ class D1DatabaseMetaData(
 	 * @throws SQLException when D1 reports an error
 	 */
 	override fun getPrimaryKeys(catalog: String?, schema: String?, table: String?): ResultSet {
-		val found = table(catalog, schema, table)
-		val rows = found?.columns.orEmpty()
+		val (catalogName, found) = table(catalog, schema, table) ?: return rowsOf(PRIMARY_KEY_COLUMNS, emptyList())
+		val rows = found.columns
 			.filter { it.primaryKeyPosition > 0 }
 			.sortedBy { it.name.lowercase() }
-			.map { listOf(null, SCHEMA, found!!.name, it.name, it.primaryKeyPosition, found.primaryKeyName) }
+			.map { listOf(catalogName, SCHEMA, found.name, it.name, it.primaryKeyPosition, found.primaryKeyName) }
 		return rowsOf(PRIMARY_KEY_COLUMNS, rows)
 	}
 
@@ -232,14 +234,14 @@ class D1DatabaseMetaData(
 		unique: Boolean,
 		approximate: Boolean,
 	): ResultSet {
-		val found = table(catalog, schema, table)
-		val rows = found?.indexes.orEmpty()
+		val (catalogName, found) = table(catalog, schema, table) ?: return rowsOf(INDEX_COLUMNS, emptyList())
+		val rows = found.indexes
 			.filter { it.unique || !unique }
 			.sortedWith(compareBy({ !it.unique }, { it.name.lowercase() }))
 			.flatMap { index ->
 				index.columns.mapIndexed { position, column ->
 					listOf(
-						null, SCHEMA, found!!.name, !index.unique, null, index.name, DatabaseMetaData.tableIndexOther,
+						catalogName, SCHEMA, found.name, !index.unique, null, index.name, DatabaseMetaData.tableIndexOther,
 						position + 1, column.name, if (column.descending) "D" else "A", null, null, null,
 					)
 				}
@@ -258,28 +260,49 @@ class D1DatabaseMetaData(
 	 * @throws SQLException when D1 reports an error
 	 */
 	private fun foreignKeys(catalog: String?, schema: String?, parentTable: String?, childTable: String?): ResultSet {
-		if (!catalog.isNullOrEmpty() || (schema != null && !schema.equals(SCHEMA, ignoreCase = true))) {
+		if (schema != null && !schema.equals(SCHEMA, ignoreCase = true)) {
 			return rowsOf(FOREIGN_KEY_COLUMNS, emptyList())
 		}
-		val schemaTables = connection.schemaCache.get()
 		val rows = mutableListOf<List<Any?>>()
-		val children = schemaTables.tables.filter { childTable == null || it.name.equals(childTable, ignoreCase = true) }
-		for (child in children) {
-			val keys = child.foreignKeys.filter { parentTable == null || it.parentTable.equals(parentTable, ignoreCase = true) }
-			for (key in keys.sortedBy { it.parentTable.lowercase() }) {
-				val parent = schemaTables.table(key.parentTable)
-				// A key with no parent columns refers to the parent's primary key.
-				val parentKey = parent?.columns.orEmpty().filter { it.primaryKeyPosition > 0 }.sortedBy { it.primaryKeyPosition }
-				key.columns.forEachIndexed { position, (from, to) ->
-					rows += listOf(
-						null, SCHEMA, parent?.name ?: key.parentTable, to ?: parentKey.getOrNull(position)?.name,
-						null, SCHEMA, child.name, from, position + 1, ruleOf(key.onUpdate), ruleOf(key.onDelete),
-						key.name, null, DatabaseMetaData.importedKeyNotDeferrable,
-					)
-				}
+		for ((catalogName, schemaTables) in connection.schemasFor(catalog)) {
+			val children = schemaTables.tables.filter { childTable == null || it.name.equals(childTable, ignoreCase = true) }
+			for (child in children) {
+				rows.addAll(foreignKeyRows(catalogName, schemaTables, child, parentTable))
 			}
 		}
 		return rowsOf(FOREIGN_KEY_COLUMNS, rows)
+	}
+
+	/**
+	 * Builds the foreign key rows of one child table.
+	 *
+	 * @param catalogName the database's name
+	 * @param schemaTables the database's schema
+	 * @param child the referencing table
+	 * @param parentTable referenced table name, or null for any
+	 * @return one row per key column
+	 */
+	private fun foreignKeyRows(
+		catalogName: String,
+		schemaTables: D1Schema,
+		child: SchemaTable,
+		parentTable: String?,
+	): List<List<Any?>> {
+		val rows = mutableListOf<List<Any?>>()
+		val keys = child.foreignKeys.filter { parentTable == null || it.parentTable.equals(parentTable, ignoreCase = true) }
+		for (key in keys.sortedBy { it.parentTable.lowercase() }) {
+			val parent = schemaTables.table(key.parentTable)
+			// A key with no parent columns refers to the parent's primary key.
+			val parentKey = parent?.columns.orEmpty().filter { it.primaryKeyPosition > 0 }.sortedBy { it.primaryKeyPosition }
+			key.columns.forEachIndexed { position, (from, to) ->
+				rows += listOf(
+					catalogName, SCHEMA, parent?.name ?: key.parentTable, to ?: parentKey.getOrNull(position)?.name,
+					catalogName, SCHEMA, child.name, from, position + 1, ruleOf(key.onUpdate), ruleOf(key.onDelete),
+					key.name, null, DatabaseMetaData.importedKeyNotDeferrable,
+				)
+			}
+		}
+		return rows
 	}
 
 	/**
@@ -344,13 +367,15 @@ class D1DatabaseMetaData(
 		foreignSchema: String?,
 		foreignTable: String?,
 	): ResultSet {
-		if (parentTable == null || foreignTable == null || !foreignCatalog.isNullOrEmpty()) {
+		// A foreign key can only refer to a table in the same database.
+		val differentDatabase = !parentCatalog.isNullOrEmpty() && !foreignCatalog.isNullOrEmpty() && parentCatalog != foreignCatalog
+		if (parentTable == null || foreignTable == null || differentDatabase) {
 			return rowsOf(FOREIGN_KEY_COLUMNS, emptyList())
 		}
 		if (foreignSchema != null && !foreignSchema.equals(SCHEMA, ignoreCase = true)) {
 			return rowsOf(FOREIGN_KEY_COLUMNS, emptyList())
 		}
-		return foreignKeys(parentCatalog, parentSchema, parentTable, foreignTable)
+		return foreignKeys(foreignCatalog.takeUnless { it.isNullOrEmpty() } ?: parentCatalog, parentSchema, parentTable, foreignTable)
 	}
 
 	/**
@@ -415,7 +440,7 @@ class D1DatabaseMetaData(
 		scope: Int,
 		nullable: Boolean,
 	): ResultSet {
-		val found = table(catalog, schema, table)
+		val found = table(catalog, schema, table)?.second
 		if (found == null || found.type != "TABLE") {
 			return rowsOf(ROW_ID_COLUMNS, emptyList())
 		}
@@ -437,13 +462,31 @@ class D1DatabaseMetaData(
 		return rowsOf(ROW_ID_COLUMNS, rows)
 	}
 
-	/** @return the one schema D1 has, `main` */
-	override fun getSchemas(): ResultSet {
-		return result(listOf("TABLE_SCHEM", "TABLE_CATALOG"), listOf(listOf(JsonPrimitive(SCHEMA), JsonNull)))
-	}
+	/**
+	 * Lists the `main` schema of every database.
+	 *
+	 * @return one row per database
+	 * @throws SQLException when the database list can't be loaded
+	 */
+	override fun getSchemas(): ResultSet = getSchemas(null, null)
 
-	/** @return the one schema D1 has, `main` */
-	override fun getSchemas(p0: String?, p1: String?): ResultSet = getSchemas()
+	/**
+	 * Lists the `main` schema of the databases asked about.
+	 *
+	 * @param catalog database name, or null for every database
+	 * @param schemaPattern schema pattern, or null
+	 * @return one row per matching database
+	 * @throws SQLException when the database list can't be loaded
+	 */
+	override fun getSchemas(catalog: String?, schemaPattern: String?): ResultSet {
+		if (!matches(schemaPattern, SCHEMA)) {
+			return rowsOf(listOf("TABLE_SCHEM", "TABLE_CATALOG"), emptyList())
+		}
+		val rows = connection.databases()
+			.filter { catalog == null || it.name == catalog }
+			.map { listOf(SCHEMA, it.name) }
+		return rowsOf(listOf("TABLE_SCHEM", "TABLE_CATALOG"), rows)
+	}
 
 	/** @return the kinds of table D1 has */
 	override fun getTableTypes(): ResultSet {
@@ -655,8 +698,8 @@ class D1DatabaseMetaData(
 	/** @return "procedure" */
 	override fun getProcedureTerm(): String = "procedure"
 
-	/** @return "catalog" */
-	override fun getCatalogTerm(): String = "catalog"
+	/** @return "database", as each catalog is one D1 database */
+	override fun getCatalogTerm(): String = "database"
 
 	/** @return false */
 	override fun isCatalogAtStart(): Boolean = false
@@ -830,8 +873,15 @@ class D1DatabaseMetaData(
 	override fun getProcedureColumns(p0: String?, p1: String?, p2: String?, p3: String?): ResultSet = emptyResult("PROCEDURE_CAT", "PROCEDURE_SCHEM", "PROCEDURE_NAME", "COLUMN_NAME", "COLUMN_TYPE", "DATA_TYPE", "TYPE_NAME", "PRECISION", "LENGTH", "SCALE", "RADIX", "NULLABLE", "REMARKS", "COLUMN_DEF", "SQL_DATA_TYPE", "SQL_DATETIME_SUB", "CHAR_OCTET_LENGTH", "ORDINAL_POSITION", "IS_NULLABLE", "SPECIFIC_NAME")
 
 
-	/** @return an empty result, filled in once schema browsing is built */
-	override fun getCatalogs(): ResultSet = emptyResult("TABLE_CAT")
+	/**
+	 * Lists every D1 database the token can reach, asking Cloudflare again each time.
+	 *
+	 * @return one row per database, sorted by name
+	 * @throws SQLException when the database list can't be loaded
+	 */
+	override fun getCatalogs(): ResultSet {
+		return rowsOf(listOf("TABLE_CAT"), connection.databases(reload = true).map { listOf(it.name) })
+	}
 
 
 	/** @return an empty result, filled in once schema browsing is built */

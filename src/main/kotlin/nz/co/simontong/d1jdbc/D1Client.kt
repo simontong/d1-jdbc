@@ -55,17 +55,26 @@ data class D1Result(
 )
 
 /**
- * Sends SQL to one D1 database through the Cloudflare REST API.
+ * One D1 database in an account.
+ *
+ * @property id database ID
+ * @property name database name
+ */
+data class D1DatabaseInfo(
+	val id: String,
+	val name: String,
+)
+
+/**
+ * Sends SQL to the D1 databases of one account through the Cloudflare REST API.
  *
  * @param accountId Cloudflare account ID
- * @param databaseId D1 database ID
  * @param apiToken API token with D1 access
  * @param baseUri Cloudflare API base address
  * @param requestTimeout how long to wait for each reply
  */
 class D1Client(
 	private val accountId: String,
-	private val databaseId: String,
 	private val apiToken: String,
 	private val baseUri: URI = URI.create("https://api.cloudflare.com/client/v4"),
 	private val requestTimeout: Duration = Duration.ofSeconds(60),
@@ -73,14 +82,15 @@ class D1Client(
 	private val httpClient = HttpClient.newHttpClient()
 
 	/**
-	 * Runs statements on D1 and returns one result per statement.
+	 * Runs statements on a D1 database and returns one result per statement.
 	 *
+	 * @param databaseId database to run them on
 	 * @param statements statements to run in order
 	 * @param timeout how long to wait for the reply
 	 * @return results in the same order
 	 * @throws SQLException when Cloudflare can't be reached or the SQL fails
 	 */
-	fun execute(statements: List<D1Query>, timeout: Duration = requestTimeout): List<D1Result> {
+	fun execute(databaseId: String, statements: List<D1Query>, timeout: Duration = requestTimeout): List<D1Result> {
 		val request = HttpRequest.newBuilder(URI.create("$baseUri/accounts/$accountId/d1/database/$databaseId/raw"))
 			.header("Authorization", "Bearer $apiToken")
 			.header("Content-Type", "application/json")
@@ -88,6 +98,85 @@ class D1Client(
 			.POST(HttpRequest.BodyPublishers.ofString(requestJson(statements).toString()))
 			.build()
 		val response = send(request, timeout)
+		val body = checkedBody(response)
+		val results = try {
+			readReply(response.statusCode(), body)
+		} catch (error: NoSuchElementException) {
+			throw unreadableReply(response, error)
+		} catch (error: IllegalArgumentException) {
+			throw unreadableReply(response, error)
+		}
+
+		// A single statement can hold several, but a batch gives exactly one result per statement.
+		if (statements.size > 1 && results.size != statements.size) {
+			throw unreadableReply(response, null)
+		}
+		return results
+	}
+
+	/**
+	 * Lists every D1 database in the account, reading every page of Cloudflare's list.
+	 *
+	 * @return the databases in the order Cloudflare lists them
+	 * @throws SQLException when Cloudflare can't be reached or rejects the token
+	 */
+	fun listDatabases(): List<D1DatabaseInfo> {
+		val databases = mutableListOf<D1DatabaseInfo>()
+		var page = 1
+		while (true) {
+			val uri = URI.create("$baseUri/accounts/$accountId/d1/database?page=$page&per_page=$DATABASES_PER_PAGE")
+			val request = HttpRequest.newBuilder(uri)
+				.header("Authorization", "Bearer $apiToken")
+				.timeout(requestTimeout)
+				.GET()
+				.build()
+			val response = send(request, requestTimeout)
+			val body = checkedBody(response)
+			val (found, total) = try {
+				readDatabasePage(response.statusCode(), body)
+			} catch (error: NoSuchElementException) {
+				throw unreadableReply(response, error)
+			} catch (error: IllegalArgumentException) {
+				throw unreadableReply(response, error)
+			}
+			databases += found
+			if (found.isEmpty() || databases.size >= total) {
+				return databases
+			}
+			page++
+		}
+	}
+
+	/**
+	 * Reads one page of the database list, or throws the error it carries.
+	 *
+	 * @param status HTTP status code of the reply
+	 * @param body parsed reply body
+	 * @return the page's databases and the account's total count
+	 * @throws SQLException when the reply reports a failure
+	 * @throws NoSuchElementException when a field is missing
+	 * @throws IllegalArgumentException when a field has the wrong type
+	 */
+	private fun readDatabasePage(status: Int, body: JsonObject): Pair<List<D1DatabaseInfo>, Int> {
+		if (!body.getValue("success").jsonPrimitive.boolean) {
+			throw errorFor(status, body.getValue("errors").jsonArray.first().jsonObject)
+		}
+		val found = body.getValue("result").jsonArray.map { item ->
+			val database = item.jsonObject
+			D1DatabaseInfo(database.getValue("uuid").jsonPrimitive.content, database.getValue("name").jsonPrimitive.content)
+		}
+		val total = body["result_info"]?.jsonObject?.get("total_count")?.jsonPrimitive?.int ?: found.size
+		return found to total
+	}
+
+	/**
+	 * Throws for replies that mean Cloudflare is busy or failing, then parses the body.
+	 *
+	 * @param response the reply
+	 * @return the parsed body
+	 * @throws SQLException when Cloudflare is limiting requests, failing, or sent unreadable JSON
+	 */
+	private fun checkedBody(response: HttpResponse<String>): JsonObject {
 		if (response.statusCode() == 429) {
 			throw SQLTransientConnectionException(
 				"Cloudflare is limiting requests, either because the account made too many API calls "
@@ -103,20 +192,7 @@ class D1Client(
 			)
 		}
 
-		val body = parseBody(response)
-		val results = try {
-			readReply(response.statusCode(), body)
-		} catch (error: NoSuchElementException) {
-			throw unreadableReply(response, error)
-		} catch (error: IllegalArgumentException) {
-			throw unreadableReply(response, error)
-		}
-
-		// A single statement can hold several, but a batch gives exactly one result per statement.
-		if (statements.size > 1 && results.size != statements.size) {
-			throw unreadableReply(response, null)
-		}
-		return results
+		return parseBody(response)
 	}
 
 	/**
@@ -299,5 +375,8 @@ class D1Client(
 	private companion object {
 		/** Cloudflare's error code for a failed SQL statement. */
 		const val SQL_ERROR_CODE = 7500
+
+		/** Databases asked for per page of the list, which is Cloudflare's most. */
+		const val DATABASES_PER_PAGE = 10000
 	}
 }

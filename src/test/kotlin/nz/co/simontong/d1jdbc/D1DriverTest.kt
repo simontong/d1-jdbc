@@ -90,10 +90,13 @@ class D1DriverTest {
 	@Test
 	fun `explains the URL format when the URL is malformed`() {
 		val error = assertFailsWith<SQLNonTransientConnectionException> {
-			connect(url = "jdbc:d1://acc123")
+			connect(url = "jdbc:d1://acc123/db456/extra")
 		}
 
-		assertEquals("The D1 URL must look like jdbc:d1://<account id>/<database id>.", error.message)
+		assertEquals(
+			"The D1 URL must look like jdbc:d1://<account id> or jdbc:d1://<account id>/<database id>.",
+			error.message,
+		)
 		assertTrue(server.requests.isEmpty())
 	}
 
@@ -444,7 +447,7 @@ class D1DriverTest {
 			val schemas = metaData.schemas
 			assertTrue(schemas.next())
 			assertEquals("main", schemas.getString("TABLE_SCHEM"))
-			assertNull(schemas.getString("TABLE_CATALOG"))
+			assertEquals("test-db", schemas.getString("TABLE_CATALOG"))
 			assertFalse(schemas.next())
 
 			val tableTypes = metaData.tableTypes

@@ -8,13 +8,14 @@ It's written in Kotlin and ships as one jar with everything it needs inside it.
 
 - Running queries and changes, including several statements at once and batches.
 - Prepared statements with `?` and `?1`-style placeholders.
+- Every D1 database in the account on one connection, each shown by name.
 - Browsing tables, views, columns, primary keys, indexes and foreign keys.
 - Editing rows in the result grid for queries that read from one table.
 - A read-only mode that blocks anything that would change data.
 
 ## Set it up in PhpStorm or DataGrip
 
-You'll need a Cloudflare API token, your account ID and your database ID.
+You'll need a Cloudflare API token and your account ID.
 
 The quickest way is the Cloudflare D1 Driver plugin, which adds D1 to the list of data sources and downloads the driver for you. Install it from the plugin jar on the releases page with Settings | Plugins | ⚙ | Install Plugin from Disk, then skip step 2 below and pick Cloudflare D1 when you add a data source.
 
@@ -28,7 +29,7 @@ If you only want to read, change the permission to D1 Read before you create it.
 
 Cloudflare tokens can't be limited to one database, so the token can reach every D1 database in the account.
 
-To find your account ID, press Ctrl+K (or Cmd+K) in the Cloudflare dashboard and choose Copy account ID (https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/). Your database ID is in the `uuid` column of `wrangler d1 list`.
+To find your account ID, press Ctrl+K (or Cmd+K) in the Cloudflare dashboard and choose Copy account ID (https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/). If you want to start on one database, its ID is in the `uuid` column of `wrangler d1 list`.
 
 ### 2. Add the driver
 
@@ -41,7 +42,7 @@ To find your account ID, press Ctrl+K (or Cmd+K) in the Cloudflare dashboard and
 ### 3. Add the database
 
 1. Add a data source that uses the D1 driver.
-2. Set the URL to `jdbc:d1://<account id>/<database id>`.
+2. Set the URL to `jdbc:d1://<account id>` to see every D1 database the token can reach, or `jdbc:d1://<account id>/<database id>` to start on one. Either way, every database shows in the tree by name, and the console's database switcher picks which one your SQL runs on.
 3. Leave the user empty and put your API token in the password field.
 4. Turn on "Introspect using JDBC metadata". JetBrains' docs place it in the Expert options on either the driver's or the data source's Advanced tab (https://www.jetbrains.com/help/datagrip/data-sources-and-drivers-dialog.html and https://www.jetbrains.com/help/datagrip/cannot-find-a-database-object-in-the-database-tree-view.html).
 5. Click Test Connection.

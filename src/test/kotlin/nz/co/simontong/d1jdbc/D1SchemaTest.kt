@@ -69,9 +69,9 @@ class D1SchemaTest {
 
 			assertEquals(
 				listOf(
-					listOf(null, "main", "child", "TABLE"),
-					listOf(null, "main", "parent", "TABLE"),
-					listOf(null, "main", "v", "VIEW"),
+					listOf("test-db", "main", "child", "TABLE"),
+					listOf("test-db", "main", "parent", "TABLE"),
+					listOf("test-db", "main", "v", "VIEW"),
 				),
 				read(tables, "TABLE_CAT", "TABLE_SCHEM", "TABLE_NAME", "TABLE_TYPE"),
 			)

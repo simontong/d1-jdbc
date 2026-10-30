@@ -25,14 +25,34 @@ class LiveD1ClientTest {
 		assumeTrue(token.isNotBlank(), "No D1_TEST_API_TOKEN in .env, so the live test is skipped")
 		val client = D1Client(
 			accountId = settings.getValue("D1_TEST_ACCOUNT_ID"),
-			databaseId = settings.getValue("D1_TEST_DATABASE_ID"),
 			apiToken = token,
 		)
 
-		val result = client.execute(listOf(D1Query("select ? as answer", listOf(JsonPrimitive("hello"))))).single()
+		val query = D1Query("select ? as answer", listOf(JsonPrimitive("hello")))
+		val result = client.execute(settings.getValue("D1_TEST_DATABASE_ID"), listOf(query)).single()
 
 		assertEquals(listOf("answer"), result.columns)
 		assertEquals(listOf(listOf(JsonPrimitive("hello"))), result.rows)
+	}
+
+	/** Checks that a URL with only the account lists the real databases and can pick one by name. */
+	@Test
+	fun `lists and picks the real account's databases`() {
+		val token = settings["D1_TEST_API_TOKEN"].orEmpty()
+		assumeTrue(token.isNotBlank(), "No D1_TEST_API_TOKEN in .env, so the live test is skipped")
+		val properties = Properties()
+		properties["password"] = token
+
+		DriverManager.getConnection("jdbc:d1://${settings.getValue("D1_TEST_ACCOUNT_ID")}", properties).use { connection ->
+			val catalogs = connection.metaData.catalogs
+			val names = generateSequence { if (catalogs.next()) catalogs.getString(1) else null }.toList()
+			assertTrue("d1-jdbc-test" in names, "Databases listed: $names")
+
+			connection.catalog = "d1-jdbc-test"
+			val rows = connection.createStatement().executeQuery("select 7 as seven")
+			assertTrue(rows.next())
+			assertEquals(7, rows.getInt(1))
+		}
 	}
 
 	/** Checks that the driver connects and queries the real database through JDBC. */

@@ -23,7 +23,7 @@ import java.util.Properties
 import java.util.concurrent.Executor
 
 /**
- * A JDBC connection to one D1 database.
+ * A JDBC connection to the D1 databases of one account, where statements run on the chosen one.
  *
  * @param client client that sends SQL to D1
  * @param settings settings the connection was opened with
@@ -39,8 +39,108 @@ class D1Connection(
 	/** Whether a statement that changes data has run since the last commit or rollback. */
 	internal var changedSinceCommit = false
 
-	/** The schema, kept for a short time so tools browsing it make few API calls. */
-	internal val schemaCache = SchemaCache(client, Duration.ofSeconds(settings.schemaCacheSeconds))
+	/** ID of the database statements run on, or null until one is chosen. */
+	private var databaseId: String? = settings.databaseId
+
+	/** The account's databases sorted by name, loaded the first time they're needed. */
+	private var databaseList: List<D1DatabaseInfo>? = null
+
+	/** Each database's schema, kept for a short time so tools browsing it make few API calls. */
+	private val schemaCaches = mutableMapOf<String, SchemaCache>()
+
+	/**
+	 * Lists the account's databases, loading the list the first time or when asked to.
+	 *
+	 * @param reload whether to ask Cloudflare again
+	 * @return the databases sorted by name
+	 * @throws SQLException when Cloudflare can't be reached or rejects the token
+	 */
+	internal fun databases(reload: Boolean = false): List<D1DatabaseInfo> {
+		val known = databaseList
+		if (known != null && !reload) {
+			return known
+		}
+		val loaded = client.listDatabases().sortedBy { it.name.lowercase() }
+		databaseList = loaded
+		return loaded
+	}
+
+	/**
+	 * Finds the database with an ID, or makes a stand-in named by its ID when the list lacks it.
+	 *
+	 * @param id database ID
+	 * @return the database
+	 * @throws SQLException when the list can't be loaded
+	 */
+	private fun databaseWithId(id: String): D1DatabaseInfo {
+		return databases().firstOrNull { it.id.equals(id, ignoreCase = true) } ?: D1DatabaseInfo(id, id)
+	}
+
+	/**
+	 * Works out the database statements run on, choosing the only one when the account has one.
+	 *
+	 * @return the database ID
+	 * @throws SQLException when no database is chosen and the account doesn't have exactly one
+	 */
+	private fun currentDatabaseId(): String {
+		databaseId?.let { return it }
+		val all = databases()
+		if (all.isEmpty()) {
+			throw SQLException("This Cloudflare account has no D1 databases.", "3D000")
+		}
+		if (all.size > 1) {
+			throw SQLException(
+				"This connection can reach several D1 databases, so choose one first. Pick it in the IDE's "
+					+ "database switcher, or add its ID to the URL.",
+				"3D000",
+			)
+		}
+		databaseId = all.single().id
+		return all.single().id
+	}
+
+	/**
+	 * Runs statements on the chosen database.
+	 *
+	 * @param statements statements to run in order
+	 * @param timeout how long to wait, or null for the client's default
+	 * @return one result per statement
+	 * @throws SQLException when no database is chosen, or D1 reports an error
+	 */
+	internal fun execute(statements: List<D1Query>, timeout: Duration? = null): List<D1Result> {
+		val id = currentDatabaseId()
+		return if (timeout != null) client.execute(id, statements, timeout) else client.execute(id, statements)
+	}
+
+	/**
+	 * Returns a database's schema cache, making it the first time.
+	 *
+	 * @param id database ID
+	 * @return the cache
+	 */
+	private fun schemaCacheFor(id: String): SchemaCache {
+		return schemaCaches.getOrPut(id) { SchemaCache(client, id, Duration.ofSeconds(settings.schemaCacheSeconds)) }
+	}
+
+	/** The chosen database's schema cache. */
+	internal val schemaCache: SchemaCache
+		get() = schemaCacheFor(currentDatabaseId())
+
+	/**
+	 * Loads the schemas a metadata call asks about, each with its database name.
+	 *
+	 * @param catalog database name, or null or empty for the chosen database, or every one if none is
+	 * @return database names and schemas, sorted by name
+	 * @throws SQLException when D1 reports an error
+	 */
+	internal fun schemasFor(catalog: String?): List<Pair<String, D1Schema>> {
+		val chosen = when {
+			!catalog.isNullOrEmpty() -> databases().filter { it.name == catalog }
+			databaseId != null -> listOf(databaseWithId(databaseId!!))
+			else -> databases()
+		}
+		return chosen.map { it.name to schemaCacheFor(it.id).get() }
+	}
 
 	/**
 	 * Throws when the connection is closed.
@@ -292,7 +392,7 @@ class D1Connection(
 
 	/** The JDBC URL for this database. */
 	internal val url: String
-		get() = "jdbc:d1://${settings.accountId}/${settings.databaseId}"
+		get() = "jdbc:d1://${settings.accountId}" + (settings.databaseId?.let { "/$it" } ?: "")
 
 	/**
 	 * Turns read-only mode on or off, unless the connection settings force it on.
@@ -321,18 +421,30 @@ class D1Connection(
 	}
 
 	/**
-	 * Ignored, as D1 has a single catalog.
+	 * Chooses the database statements run on, by its name.
 	 *
-	 * @param catalog catalog name
+	 * @param catalog database name, where null or empty change nothing
+	 * @throws SQLException when the account has no database with that name
 	 */
 	override fun setCatalog(catalog: String?) {
 		checkOpen()
+		if (catalog.isNullOrEmpty()) {
+			return
+		}
+		val found = databases().firstOrNull { it.name == catalog } ?: databases(reload = true).firstOrNull { it.name == catalog }
+		databaseId = found?.id ?: throw SQLException("There's no D1 database called \"$catalog\" in this account.", "3D000")
 	}
 
-	/** @return null, as D1 has no catalogs */
+	/**
+	 * Names the database statements run on.
+	 *
+	 * @return the database name, or null when none is chosen yet
+	 * @throws SQLException when the database list can't be loaded
+	 */
 	override fun getCatalog(): String? {
 		checkOpen()
-		return null
+		val id = databaseId ?: return databases().singleOrNull()?.name
+		return databaseWithId(id).name
 	}
 
 	/**
@@ -420,12 +532,14 @@ class D1Connection(
 			return false
 		}
 
+		// With no database chosen, listing the databases checks the token instead.
+		val id = databaseId
 		val query = listOf(D1Query("select 1"))
 		try {
-			if (timeout > 0) {
-				client.execute(query, Duration.ofSeconds(timeout.toLong()))
-			} else {
-				client.execute(query)
+			when {
+				id == null -> databases(reload = true)
+				timeout > 0 -> client.execute(id, query, Duration.ofSeconds(timeout.toLong()))
+				else -> client.execute(id, query)
 			}
 		} catch (error: SQLException) {
 			return false

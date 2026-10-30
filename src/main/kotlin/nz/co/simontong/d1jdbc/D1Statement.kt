@@ -85,7 +85,7 @@ open class D1Statement(
 			connection.schemaCache.clear()
 		}
 		val timeout = if (queryTimeoutSeconds > 0) Duration.ofSeconds(queryTimeoutSeconds.toLong()) else null
-		val sent = if (timeout != null) connection.client.execute(queries, timeout) else connection.client.execute(queries)
+		val sent = connection.execute(queries, timeout)
 		if (writes) {
 			connection.changedSinceCommit = true
 		}

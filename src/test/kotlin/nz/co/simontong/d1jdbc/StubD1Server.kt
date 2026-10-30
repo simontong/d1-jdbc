@@ -34,8 +34,17 @@ class StubD1Server : AutoCloseable {
 	private var delayMillis = 0L
 	private var handler: ((String) -> Pair<Int, String>)? = null
 
-	/** Every request received, oldest first. */
+	/** Every SQL request received, oldest first. */
 	val requests = mutableListOf<RecordedRequest>()
+
+	/** Database IDs and names the account lists, where the default ID matches [connect]'s URL. */
+	var databases = listOf("db456" to "test-db")
+
+	/** Databases the stub lists per page, standing in for Cloudflare's page size. */
+	var databasesPerPage = 10000
+
+	/** Page queries of each database list request received, like `page=1&per_page=10000`. */
+	val databaseListRequests = mutableListOf<String>()
 
 	/** Base URI to pass to the client in place of the Cloudflare API. */
 	val baseUri: URI
@@ -43,6 +52,15 @@ class StubD1Server : AutoCloseable {
 
 	init {
 		server.createContext("/") { exchange ->
+			if (exchange.requestMethod == "GET" && exchange.requestURI.path.endsWith("/d1/database")) {
+				databaseListRequests += exchange.requestURI.query.orEmpty()
+				val page = Regex("""(?:^|&)page=(\d+)""").find(exchange.requestURI.query.orEmpty())?.groupValues?.get(1)?.toInt() ?: 1
+				val bytes = databaseListJson(page).encodeToByteArray()
+				exchange.responseHeaders.add("Content-Type", "application/json")
+				exchange.sendResponseHeaders(200, bytes.size.toLong())
+				exchange.responseBody.use { it.write(bytes) }
+				return@createContext
+			}
 			val body = exchange.requestBody.readAllBytes().decodeToString()
 			requests += RecordedRequest(
 				method = exchange.requestMethod,
@@ -61,6 +79,19 @@ class StubD1Server : AutoCloseable {
 			exchange.responseBody.use { it.write(bytes) }
 		}
 		server.start()
+	}
+
+	/**
+	 * Builds Cloudflare's reply listing one page of [databases].
+	 *
+	 * @param page page number, starting at 1
+	 * @return the reply body
+	 */
+	private fun databaseListJson(page: Int): String {
+		val onPage = databases.drop((page - 1) * databasesPerPage).take(databasesPerPage)
+		val items = onPage.joinToString(",") { (id, name) -> """{"uuid":"$id","name":"$name","version":"production"}""" }
+		return """{"result":[$items],"result_info":{"page":$page,"per_page":$databasesPerPage,""" +
+			""""count":${onPage.size},"total_count":${databases.size}},"errors":[],"messages":[],"success":true}"""
 	}
 
 	/**
