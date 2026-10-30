@@ -1,0 +1,14 @@
+name: Question
+description: Ask how to do something.
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the [README](https://github.com/simontong/d1-jdbc#readme) first. Do not put an API token, an account ID or private data in this form.
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+    validations:
+      required: true

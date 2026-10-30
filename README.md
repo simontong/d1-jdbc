@@ -1,5 +1,7 @@
 # D1 JDBC Connector
 
+[![Build](https://github.com/simontong/d1-jdbc/actions/workflows/build.yml/badge.svg)](https://github.com/simontong/d1-jdbc/actions/workflows/build.yml) [![Release](https://img.shields.io/github/v/release/simontong/d1-jdbc)](https://github.com/simontong/d1-jdbc/releases) [![Licence: MIT](https://img.shields.io/github/license/simontong/d1-jdbc)](LICENSE)
+
 Browse, query and edit your Cloudflare D1 databases in PhpStorm, DataGrip and the other JetBrains IDEs.
 
 D1 JDBC Connector is a JDBC driver and an IDE plugin. The driver sends your SQL to Cloudflare's REST API. Outside of Cloudflare, this API is the only way to reach a live D1 database ([Cloudflare docs](https://developers.cloudflare.com/d1/best-practices/query-d1/)).
@@ -24,6 +26,7 @@ D1 JDBC Connector is a JDBC driver and an IDE plugin. The driver sends your SQL 
 - [Settings](#settings)
 - [Limits](#limits)
 - [Build from source](#build-from-source)
+- [Contributing](#contributing)
 
 ## Install the plugin
 
@@ -165,6 +168,10 @@ The plugin build downloads PhpStorm to compile against, which is large. To use a
 A release build, made with `-PreleaseVersion=<version>`, sets the plugin to download the driver from the GitHub release with the same version. Any other build sets the plugin to use the driver jar in `build/libs`, so that you can test the plugin before a release.
 
 The tests use a stub server and an in-memory SQLite database. To also run the live tests, copy `.env.example` to `.env`, then add the details of a test database. The live tests make and delete their own tables.
+
+## Contributing
+
+Bug reports, questions and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Licence
 

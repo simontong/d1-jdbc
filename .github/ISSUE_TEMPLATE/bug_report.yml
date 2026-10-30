@@ -1,0 +1,54 @@
+name: Bug report
+description: Something does not work as expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not put an API token, an account ID or private data in this form.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what happened instead. Include the full error message.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The steps that cause the problem.
+      placeholder: |
+        1. Add a D1 JDBC Connector data source.
+        2. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: auth
+    attributes:
+      label: Authentication
+      options:
+        - Cloudflare sign-in
+        - API token
+        - Driver without the plugin
+    validations:
+      required: true
+  - type: input
+    id: driver-version
+    attributes:
+      label: Driver version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: ide-version
+    attributes:
+      label: IDE and version
+      placeholder: "PhpStorm 2026.2.3"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "Fedora 44"

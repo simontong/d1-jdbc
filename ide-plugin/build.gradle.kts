@@ -1,3 +1,6 @@
+import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
+import org.jetbrains.intellij.platform.gradle.models.ProductRelease
+
 plugins {
 	alias(libs.plugins.kotlin.jvm)
 	alias(libs.plugins.intellij.platform)
@@ -39,6 +42,17 @@ kotlin {
 
 intellijPlatform {
 	buildSearchableOptions = false
+
+	// The release workflow checks the plugin against the current PhpStorm and DataGrip releases.
+	pluginVerification {
+		ides {
+			select {
+				types = listOf(IntelliJPlatformType.PhpStorm, IntelliJPlatformType.DataGrip)
+				channels = listOf(ProductRelease.Channel.RELEASE)
+				sinceBuild = "262"
+			}
+		}
+	}
 }
 
 tasks.processResources {

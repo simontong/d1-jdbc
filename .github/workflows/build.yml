@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -17,5 +20,5 @@ jobs:
         with:
           # The MIT-licensed cache, as the default one is proprietary.
           cache-provider: basic
-      # Live tests skip themselves, as CI has no D1 token.
+      # Runs the tests and the style check. Live tests skip themselves, as CI has no D1 token.
       - run: ./gradlew build

@@ -2,7 +2,7 @@
 
 ## Report a problem
 
-Do not report a security problem in a public issue. Use the "Report a vulnerability" button on the Security tab of this repository. GitHub sends the report only to the maintainer.
+Do not report a security problem in a public issue. Instead, [report it in private](https://github.com/simontong/d1-jdbc/security/advisories/new) on the repository's Security Advisories page. GitHub sends the report only to the maintainer.
 
 ## Your API token
 
