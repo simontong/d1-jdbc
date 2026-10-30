@@ -44,8 +44,6 @@ With this option, you do not need an API token or your account ID.
 4. Click **Test Connection**. Your browser opens Cloudflare's sign-in page.
 5. Select the accounts to use, then click **Review permissions** and **Authorize**.
 
-![Cloudflare's sign-in page for D1 JDBC Connector](images/cloudflare-sign-in.png)
-
 When the browser shows "You're signed in", go back to the IDE.
 
 The tree shows the databases of every account that you selected. If you selected more than one account, each database name starts with its account name, for example `Main / shop`.
