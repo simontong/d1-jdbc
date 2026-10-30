@@ -61,11 +61,14 @@ class D1Driver : Driver {
 			openBrowser,
 		)
 		// Tools connect in the background too, where a browser opening out of nowhere would confuse.
-		if (!settings.openBrowser && !signIn.isSignedIn()) {
-			throw SQLInvalidAuthorizationSpecException(
-				"You need to sign in with Cloudflare. Connect to this data source to open the sign-in page.",
-				"28000",
-			)
+		if (!signIn.isSignedIn()) {
+			if (!settings.openBrowser) {
+				throw SQLInvalidAuthorizationSpecException(
+					"You need to sign in with Cloudflare. Connect to this data source to open the sign-in page.",
+					"28000",
+				)
+			}
+			signIn.signInWithBrowser()
 		}
 		val accounts = signIn.accounts { D1Client("", signIn, settings.apiBaseUrl).listAccounts() }
 		if (accounts.isEmpty()) {

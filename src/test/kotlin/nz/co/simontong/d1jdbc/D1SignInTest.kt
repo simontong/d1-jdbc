@@ -90,6 +90,13 @@ class D1SignInTest {
 	}
 
 	/**
+	 * Makes sign-in credentials and signs in through the fake browser.
+	 *
+	 * @return the signed-in credentials
+	 */
+	private fun signedIn(): SignInCredentials = credentials().also { it.signInWithBrowser() }
+
+	/**
 	 * Opens a signed-in connection through the driver.
 	 *
 	 * @param url JDBC URL
@@ -106,7 +113,7 @@ class D1SignInTest {
 	/** Checks the sign-in page gets PKCE, state and scopes, and the token request names the driver. */
 	@Test
 	fun `signs in with PKCE and saves the tokens for this user only`() {
-		val token = credentials().token()
+		val token = signedIn().token()
 
 		assertEquals("access-1", token)
 		val page = query(opened.single())
@@ -132,7 +139,7 @@ class D1SignInTest {
 	/** Checks a saved sign-in is reused by a new connection without opening the browser. */
 	@Test
 	fun `reuses the saved sign-in`() {
-		credentials().token()
+		signedIn()
 		opened.clear()
 
 		assertEquals("access-1", credentials().token())
@@ -149,6 +156,7 @@ class D1SignInTest {
 			override fun withZone(zone: ZoneId): Clock = this
 			override fun instant(): Instant = now
 		})
+		credentials.signInWithBrowser()
 		assertEquals("access-1", credentials.token())
 		now = start.plusSeconds(3500)
 		assertEquals("access-1", credentials.token())
@@ -176,8 +184,7 @@ class D1SignInTest {
 	/** Checks a refusal that isn't about the token, such as an unticked account, doesn't use up the refresh token. */
 	@Test
 	fun `refreshes only when Cloudflare calls the token invalid`() {
-		val credentials = credentials()
-		credentials.token()
+		val credentials = signedIn()
 
 		assertNull(credentials.renew("access-1", 10000))
 		assertEquals(1, signIn.requests.size)
@@ -187,8 +194,7 @@ class D1SignInTest {
 	/** Checks a refresh reply with no new refresh token keeps the old one, as OAuth allows. */
 	@Test
 	fun `keeps the refresh token when a refresh reply leaves it out`() {
-		val credentials = credentials()
-		credentials.token()
+		val credentials = signedIn()
 		signIn.failure = 200 to """{"access_token":"access-new","expires_in":3599,"token_type":"bearer"}"""
 
 		assertEquals("access-new", credentials.renew("access-1", 9109))
@@ -199,16 +205,22 @@ class D1SignInTest {
 	/** Checks a refresh token Cloudflare no longer accepts deletes the saved sign-in and asks for a new one. */
 	@Test
 	fun `asks to sign in again when the sign-in has ended`() {
-		signIn.expiresIn = 30
-		val credentials = credentials()
-		credentials.token()
+		val credentials = signedIn()
 		signIn.failure = 400 to """{"error":"invalid_grant","error_description":"revoked"}"""
 
-		val error = assertFailsWith<SQLException> { credentials.token() }
+		val error = assertFailsWith<SQLException> { credentials.renew("access-1", 9109) }
 
 		assertEquals("28000", error.sqlState)
-		assertEquals("Your Cloudflare sign-in has ended, as it was revoked or not used for too long. Connect again to sign in.", error.message)
+		assertEquals(
+			"Your Cloudflare sign-in has ended, as it was revoked or not used for too long. Connect again to sign in.",
+			error.message,
+		)
 		assertFalse(Files.exists(tokenFile))
+
+		// A connection that is already open asks for a sign-in instead of opening the browser.
+		val again = assertFailsWith<SQLException> { credentials.token() }
+		assertEquals("You need to sign in with Cloudflare. Connect to this data source to open the sign-in page.", again.message)
+		assertEquals(1, opened.size)
 	}
 
 	/** Checks pressing Cancel on Cloudflare's page gives a clear message. */
@@ -216,7 +228,7 @@ class D1SignInTest {
 	fun `reports a cancelled sign-in`() {
 		val cancel = browser { mapOf("error" to "access_denied", "state" to it.getValue("state")) }
 
-		val error = assertFailsWith<SQLException> { credentials(cancel).token() }
+		val error = assertFailsWith<SQLException> { credentials(cancel).signInWithBrowser() }
 
 		assertEquals("The Cloudflare sign-in was cancelled. Connect again to retry.", error.message)
 		assertFalse(Files.exists(tokenFile))
@@ -227,7 +239,7 @@ class D1SignInTest {
 	fun `ignores a reply for another sign-in and times out`() {
 		val forged = browser { mapOf("code" to StubSignInServer.GOOD_CODE, "state" to "someone-else") }
 
-		val error = assertFailsWith<SQLException> { credentials(forged, Duration.ofSeconds(2)).token() }
+		val error = assertFailsWith<SQLException> { credentials(forged, Duration.ofSeconds(2)).signInWithBrowser() }
 
 		assertEquals("HYT00", error.sqlState)
 		assertEquals("The Cloudflare sign-in wasn't finished within 2 seconds. Connect again to retry.", error.message)
@@ -237,7 +249,7 @@ class D1SignInTest {
 	/** Checks a computer with no browser gets told to use an API token. */
 	@Test
 	fun `reports when no browser can be opened`() {
-		val error = assertFailsWith<SQLException> { credentials({ throw java.io.IOException("no browser") }).token() }
+		val error = assertFailsWith<SQLException> { credentials({ throw java.io.IOException("no browser") }).signInWithBrowser() }
 
 		assertEquals("Could not open a browser to sign in with Cloudflare. Use an API token on this computer instead.", error.message)
 	}
@@ -247,7 +259,7 @@ class D1SignInTest {
 	fun `reports a failed token request`() {
 		signIn.failure = 403 to "error code: 1010"
 
-		val error = assertFailsWith<SQLException> { credentials().token() }
+		val error = assertFailsWith<SQLException> { credentials().signInWithBrowser() }
 
 		assertEquals("Cloudflare's sign-in failed with HTTP 403: error code: 1010", error.message)
 	}

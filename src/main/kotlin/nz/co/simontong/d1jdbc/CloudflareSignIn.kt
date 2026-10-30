@@ -11,8 +11,11 @@ import java.net.URLDecoder
 import java.net.URLEncoder
 import java.net.http.HttpRequest
 import java.nio.channels.FileChannel
+import java.nio.channels.FileLock
+import java.nio.channels.OverlappingFileLockException
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
+import java.nio.file.InvalidPathException
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
@@ -32,6 +35,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import java.util.concurrent.locks.ReentrantLock
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -85,6 +89,9 @@ internal class SignInCredentials(
 ) : D1Credentials {
 	/** The tokens in use, or null until loaded or signed in. */
 	private var tokens: SignInTokens? = null
+
+	/** Lets only one browser sign-in run at a time, without blocking the token methods. */
+	private val browserLock = ReentrantLock()
 
 	/** The accounts the sign-in reaches and when they were listed, so new connections skip the call. */
 	private var accounts: Pair<Instant, List<D1AccountInfo>>? = null
@@ -185,9 +192,54 @@ internal class SignInCredentials(
 	 */
 	private fun currentTokens(): SignInTokens {
 		tokens?.let { return it }
-		val loaded = withFileLock { readTokenFile() ?: signIn().also { writeTokenFile(it) } }
+		// Only connecting may open the browser, so a background call asks for a sign-in instead.
+		val loaded = withFileLock { readTokenFile() } ?: throw signInNeeded()
 		tokens = loaded
 		return loaded
+	}
+
+	/**
+	 * Signs in with Cloudflare in the browser, unless a sign-in is already saved. The browser wait holds
+	 * no lock, so other connections keep working, and only one sign-in runs at a time.
+	 *
+	 * @throws SQLException when the user cancels, the wait runs out, or Cloudflare fails
+	 */
+	fun signInWithBrowser() {
+		val waitUntil = System.nanoTime() + settings.waitForSignIn.toNanos()
+		val locked = try {
+			browserLock.tryLock(settings.waitForSignIn.toMillis(), TimeUnit.MILLISECONDS)
+		} catch (error: InterruptedException) {
+			Thread.currentThread().interrupt()
+			throw SQLException("The Cloudflare sign-in was stopped before it finished.", "HY008", error)
+		}
+		if (!locked) {
+			throw SQLTimeoutException("Another Cloudflare sign-in is still open in the browser. Finish it, then connect.", "HYT00")
+		}
+		try {
+			if (isSignedIn() || System.nanoTime() >= waitUntil) {
+				return
+			}
+			val fresh = signIn()
+			synchronized(this) {
+				withFileLock { writeTokenFile(fresh) }
+				tokens = fresh
+				accounts = null
+			}
+		} finally {
+			browserLock.unlock()
+		}
+	}
+
+	/**
+	 * Builds the error for a connection that needs a sign-in it may not start itself.
+	 *
+	 * @return the exception to throw
+	 */
+	private fun signInNeeded(): SQLException {
+		return SQLInvalidAuthorizationSpecException(
+			"You need to sign in with Cloudflare. Connect to this data source to open the sign-in page.",
+			"28000",
+		)
 	}
 
 	/**
@@ -207,7 +259,7 @@ internal class SignInCredentials(
 			val refreshed = try {
 				requestTokens(mapOf("grant_type" to "refresh_token", "refresh_token" to stale.refreshToken), stale)
 			} catch (error: SignInEndedException) {
-				Files.deleteIfExists(settings.tokenFile)
+				deleteTokenFile()
 				tokens = null
 				throw SQLInvalidAuthorizationSpecException(
 					"Your Cloudflare sign-in has ended, as it was revoked or not used for too long. Connect again "
@@ -489,15 +541,72 @@ internal class SignInCredentials(
 	 * @throws SQLException when the lock file can't be opened
 	 */
 	private fun <T> withFileLock(step: () -> T): T {
-		val lockFile = settings.tokenFile.resolveSibling("${settings.tokenFile.fileName}.lock")
+		val tokenFile = settings.tokenFile.toAbsolutePath().normalize()
+		val lockFile = tokenFile.resolveSibling("${tokenFile.fileName}.lock")
 		val channel = try {
-			Files.createDirectories(lockFile.toAbsolutePath().parent)
+			Files.createDirectories(lockFile.parent)
 			FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE)
 		} catch (error: IOException) {
 			throw SQLNonTransientConnectionException("Could not open the sign-in lock file $lockFile.", "08001", error)
+		} catch (error: InvalidPathException) {
+			throw SQLNonTransientConnectionException("The sign-in file path $tokenFile isn't valid.", "08001", error)
 		}
 		return channel.use {
-			it.lock().use { step() }
+			val lock = waitForLock(it, lockFile)
+			lock.use { step() }
+		}
+	}
+
+	/**
+	 * Takes the lock on the lock file, waiting a limited time for other programs to finish with it.
+	 *
+	 * @param channel the open lock file
+	 * @param lockFile its path, for the error message
+	 * @return the lock
+	 * @throws SQLException when the lock isn't free in time, or the file can't be locked
+	 */
+	private fun waitForLock(channel: FileChannel, lockFile: Path): FileLock {
+		val waitUntil = System.nanoTime() + FILE_LOCK_WAIT.toNanos()
+		while (true) {
+			val lock = try {
+				channel.tryLock()
+			} catch (error: OverlappingFileLockException) {
+				null
+			} catch (error: IOException) {
+				throw SQLNonTransientConnectionException("Could not lock the sign-in file $lockFile.", "08001", error)
+			}
+			if (lock != null) {
+				return lock
+			}
+			if (System.nanoTime() >= waitUntil) {
+				throw SQLTimeoutException(
+					"Another program held the Cloudflare sign-in file for too long. Try again in a moment.",
+					"HYT00",
+				)
+			}
+			try {
+				Thread.sleep(FILE_LOCK_POLL.toMillis())
+			} catch (error: InterruptedException) {
+				Thread.currentThread().interrupt()
+				throw SQLException("Waiting for the Cloudflare sign-in file was stopped.", "HY008", error)
+			}
+		}
+	}
+
+	/**
+	 * Deletes the saved sign-in, so the next connection signs in again.
+	 *
+	 * @throws SQLException when the file can't be deleted
+	 */
+	private fun deleteTokenFile() {
+		try {
+			Files.deleteIfExists(settings.tokenFile)
+		} catch (error: IOException) {
+			throw SQLNonTransientConnectionException(
+				"Could not delete the ended Cloudflare sign-in at ${settings.tokenFile}. Delete it, then connect.",
+				"08001",
+				error,
+			)
 		}
 	}
 
@@ -528,6 +637,12 @@ internal class SignInCredentials(
 
 		/** How long before the access token ends that the driver gets a new one. */
 		private val REFRESH_EARLY = Duration.ofMinutes(1)
+
+		/** How long to wait for another program to finish with the sign-in file. */
+		private val FILE_LOCK_WAIT = Duration.ofSeconds(45)
+
+		/** How often to check whether the sign-in file is free. */
+		private val FILE_LOCK_POLL = Duration.ofMillis(50)
 
 		/** How long to wait for the token endpoint. */
 		private val TOKEN_TIMEOUT = Duration.ofSeconds(30)
