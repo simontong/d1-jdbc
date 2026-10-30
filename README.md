@@ -1,122 +1,157 @@
 # D1 JDBC Connector
 
-A JDBC driver for Cloudflare D1. Use it to browse, query and edit D1 databases in DataGrip, PhpStorm and other JetBrains IDEs, or in any JDBC tool.
+Browse, query and edit your Cloudflare D1 databases in PhpStorm, DataGrip and the other JetBrains IDEs.
 
-The driver sends SQL to Cloudflare's REST API. Outside of Cloudflare, this API is the only way to reach a live D1 database (https://developers.cloudflare.com/d1/best-practices/query-d1/).
+D1 JDBC Connector is a JDBC driver and an IDE plugin. The driver sends your SQL to Cloudflare's REST API. Outside of Cloudflare, this API is the only way to reach a live D1 database ([Cloudflare docs](https://developers.cloudflare.com/d1/best-practices/query-d1/)).
 
 ## Features
 
-- One connection shows every D1 database in the account, each by its name.
+- Sign in with Cloudflare in the browser, or use an API token.
+- See every D1 database in your account in one connection.
 - Run queries, changes, batches, and SQL that holds more than one statement.
-- Prepared statements with `?` and `?1` placeholders.
+- Use prepared statements with `?` and `?1` placeholders.
 - Browse tables, views, columns, primary keys, indexes and foreign keys.
-- Edit rows in the result grid when the query reads from one table.
-- Read-only mode blocks statements that change data.
+- Edit rows in the result grid.
+- Block changes with read-only mode.
 
-## What you need
+## Contents
 
-- A Cloudflare API token with D1 permission.
-- Your Cloudflare account ID.
+- [Install the plugin](#install-the-plugin)
+- [Connect with Cloudflare sign-in](#connect-with-cloudflare-sign-in)
+- [Connect with an API token](#connect-with-an-api-token)
+- [Choose a database](#choose-a-database)
+- [Use the driver without the plugin](#use-the-driver-without-the-plugin)
+- [Settings](#settings)
+- [Limits](#limits)
+- [Build from source](#build-from-source)
 
-### Make the API token
+## Install the plugin
 
-Open this link while you are logged in to Cloudflare. The link fills in a token with D1 Edit permission. Select your account, then create the token.
+1. Download `d1-jdbc-ide-plugin-<version>.zip` from the [releases page](https://github.com/simontong/d1-jdbc/releases).
+2. In the IDE, open **Settings | Plugins**.
+3. Click ⚙, then **Install Plugin from Disk**, and select the zip.
+4. Restart the IDE.
 
-https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=%5B%7B%22key%22%3A%22d1%22%2C%22type%22%3A%22edit%22%7D%5D&accountId=*&zoneId=all&name=D1%20JDBC
+The plugin adds **D1 JDBC Connector** to the list of data sources. The first time that you connect, the IDE downloads the driver.
 
-For read-only use, change the permission to D1 Read before you create the token.
+## Connect with Cloudflare sign-in
 
-The token can reach every D1 database in the account. Cloudflare tokens cannot be limited to one database.
+With this option, you do not need an API token or your account ID.
 
-### Find your account ID
+1. In the **Database** tool window, click **+**, then **Data Source | D1 JDBC Connector**.
+2. In **Authentication**, select **Cloudflare sign-in**.
+3. Leave **Account** empty.
+4. Click **Test Connection**. Your browser opens Cloudflare's sign-in page.
+5. Select the accounts to use, then click **Review permissions** and **Authorize**.
 
-In the Cloudflare dashboard, press Ctrl+K (Cmd+K on a Mac), then select Copy account ID (https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/).
+![Cloudflare's sign-in page for D1 JDBC Connector](images/cloudflare-sign-in.png)
 
-## Set up the IDE
+When the browser shows "You're signed in", go back to the IDE.
 
-### With the plugin
+![The page that shows after you sign in](images/signed-in.png)
 
-1. Download the plugin zip from the releases page.
-2. In the IDE, open Settings | Plugins | ⚙ | Install Plugin from Disk, and select the zip.
-3. Add a data source and select D1 JDBC Connector. The IDE downloads the driver.
-4. In Authentication, select one of these:
-   - Cloudflare sign-in: click Test Connection, then sign in with Cloudflare in the browser. Leave Account empty to use every account that you select on Cloudflare's page.
-   - API token: put your account ID in Account, and the API token in API token.
+The tree shows the databases of every account that you selected. If you selected more than one account, each database name starts with its account name, for example `Main / shop`.
 
-The plugin opens the browser only when you connect. When the IDE connects in the background and you are not signed in, the connection fails and asks you to connect.
+To use one account only, put its ID in **Account**.
 
-### Without the plugin
+### Read-only sign-in
 
-1. Download `d1-jdbc-<version>-all.jar` from the releases page.
-2. Open Data Sources and Drivers (Ctrl+Alt+Shift+S), then go to the Drivers tab.
-3. Add a driver with the name D1.
-4. In Driver Files, add the jar as a custom JAR.
-5. Set Class to `nz.co.simontong.d1jdbc.D1Driver`.
-6. On the Options tab, set Dialect to SQLite.
-7. Do the steps in "Connect to D1".
+On Cloudflare's page, click **Edit Permissions** and remove **D1 Write**. The connection is then read-only.
 
-The JetBrains help has more about custom drivers (https://www.jetbrains.com/help/datagrip/jdbc-drivers.html).
+### Sign in again or sign out
 
-### Connect to D1
+The driver keeps your sign-in in a file that only you can read. It gets a new token each hour, so you sign in once on each computer.
 
-1. Add a data source that uses the D1 driver.
-2. Set the URL to `jdbc:d1://<account id>`.
-3. Leave the user empty. Put the API token in the password field.
-4. Click Test Connection.
+- To sign in again, delete the file, then connect. The file is `d1-jdbc/cloudflare-sign-in.json` in your config folder: `%APPDATA%` on Windows, otherwise `$XDG_CONFIG_HOME` or `~/.config`.
+- To remove the app from your Cloudflare account, open **My Profile | Access Management | Connected Applications** in the Cloudflare dashboard.
 
-The tree shows each database by name. To pick the database that your SQL runs on, use the database switcher in the query console. Until you pick one, SQL runs on the first database by name.
+The IDE opens the browser only when you connect. When the IDE connects in the background and you are not signed in, the connection stops and asks you to connect.
 
-To start on one database, add its name or ID to the URL: `jdbc:d1://<account id>/<database name>`. If two databases have the same name, use the ID. The ID is in the `uuid` column of `wrangler d1 list`.
+> [!NOTE]
+> At the moment, only members of the Cloudflare account that owns the sign-in app can use Cloudflare sign-in. Everyone else can use an API token.
 
-### Sign in with Cloudflare
+## Connect with an API token
 
-With the plugin, use the Cloudflare sign-in option in Authentication. Without the plugin, sign in like this:
+### 1. Make the token
 
-1. Set the connection type to URL only, and set the URL to `jdbc:d1://?auth=browser`.
-2. Leave the user and password empty.
-3. Click Test Connection. Your browser opens Cloudflare's sign-in page.
-4. Select the accounts to use, then click Authorize.
+Open this link while you are logged in to Cloudflare. It fills in a token with D1 Edit permission:
 
-The tree shows the databases of every account that you select. If you select more than one account, each database name starts with its account name. To use one account only, add its ID to the URL: `jdbc:d1://<account id>?auth=browser`.
+[Create a D1 API token](https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=%5B%7B%22key%22%3A%22d1%22%2C%22type%22%3A%22edit%22%7D%5D&accountId=*&zoneId=all&name=D1%20JDBC)
 
-If you remove D1 Write on Cloudflare's page, the connection is read-only.
+Select your account, then create the token. For read-only use, change the permission to **D1 Read** first.
 
-The driver keeps the sign-in in a file that only you can read, and gets a new token each hour. To sign in again, delete the file. Cloudflare lists the apps you signed in to under My Profile, then Access Management, then Connected Applications.
+> [!IMPORTANT]
+> The token can reach every D1 database in the account. Cloudflare tokens cannot be limited to one database.
 
-At the moment, only members of the Cloudflare account that owns the sign-in app can sign in.
+### 2. Find your account ID
+
+In the Cloudflare dashboard, press Ctrl+K (Cmd+K on a Mac), then select **Copy account ID** ([Cloudflare docs](https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/)).
+
+### 3. Add the data source
+
+1. In the **Database** tool window, click **+**, then **Data Source | D1 JDBC Connector**.
+2. In **Authentication**, select **API token**.
+3. Put your account ID in **Account**, and the token in **API token**.
+4. Click **Test Connection**.
+
+The IDE keeps the token in its password store.
+
+## Choose a database
+
+D1 has no default database, so the driver uses the first database by name until you pick one. To pick the database that your SQL runs on, use the database switcher in the query console.
+
+To start on one database, put its name or ID in **Database**. If two databases have the same name, use the ID. The ID is in the `uuid` column of `wrangler d1 list`.
+
+## Use the driver without the plugin
+
+The driver works in any JDBC tool. These steps are for a JetBrains IDE.
+
+1. Download `d1-jdbc-<version>-all.jar` from the [releases page](https://github.com/simontong/d1-jdbc/releases).
+2. Open **Data Sources and Drivers** (Ctrl+Alt+Shift+S), then go to the **Drivers** tab.
+3. Add a driver, and add the jar as a custom JAR in **Driver Files**.
+4. Set **Class** to `nz.co.simontong.d1jdbc.D1Driver`.
+5. On the **Options** tab, set **Dialect** to SQLite.
+6. Add a data source that uses the driver, and set the URL.
+
+| To connect with | URL | User and password |
+| --- | --- | --- |
+| Cloudflare sign-in | `jdbc:d1://all?auth=browser` | Leave both empty. |
+| An API token | `jdbc:d1://<account id>` | Leave the user empty. Put the token in the password. |
+
+To start on one database, add its name or ID to the URL, for example `jdbc:d1://<account id>/shop`.
+
+The JetBrains help has more about [custom drivers](https://www.jetbrains.com/help/datagrip/jdbc-drivers.html).
 
 ## Settings
 
-Add settings to the end of the URL, for example `jdbc:d1://<account id>?readOnly=true`. You can also set them on the Advanced tab of the data source.
+Add settings to the end of the URL, for example `jdbc:d1://<account id>?readOnly=true`. You can also set them on the **Advanced** tab of the data source.
 
-| Setting              | Default | What it does                                                                                                                             |
-|----------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------|
-| `password`           | none    | Your Cloudflare API token. Put it in the password field. The driver does not accept it in the URL, because IDEs save URLs as plain text. |
-| `readOnly`           | `false` | Blocks statements that change data.                                                                                                      |
-| `schemaCacheSeconds` | `30`    | How long the driver keeps the table list before it reads it again. `0` reads it every time.                                              |
-| `auth`               | `token` | `token` uses the API token in the password field. `browser` signs in with Cloudflare in the browser.                                     |
-| `tokenFile`          | see below | The file that keeps the Cloudflare sign-in when `auth` is `browser`.                                                                   |
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `auth` | `token` | `token` uses the API token in the password. `browser` signs in with Cloudflare in the browser. |
+| `password` | none | Your API token. The driver does not accept it in the URL, because IDEs save URLs as plain text. |
+| `readOnly` | `false` | Blocks statements that change data. |
+| `schemaCacheSeconds` | `30` | How long the driver keeps the table list before it reads it again. `0` reads it every time. |
+| `tokenFile` | see [Sign in again](#sign-in-again-or-sign-out) | The file that keeps the Cloudflare sign-in. |
+| `openBrowser` | `true` | `false` stops a connection from opening the browser to sign in. The plugin sets this for background connections. |
 
-Read-only mode is a check in the driver. For a guarantee from Cloudflare, also use a token with D1 Read permission.
-
-The default `tokenFile` is `d1-jdbc/cloudflare-sign-in.json` in your config folder: `%APPDATA%` on Windows, otherwise `$XDG_CONFIG_HOME` or `~/.config`.
+Read-only mode is a check in the driver. For a guarantee from Cloudflare, also use a token with D1 Read permission, or sign in without D1 Write.
 
 ## Limits
 
-- D1 has no transactions that you can control. Each statement is saved when it runs, so rollback is not possible. A batch, or SQL that holds more than one statement, is saved completely or not at all.
-- If Cloudflare does not reply, a statement that changes data can be saved or not saved. The error message tells you this.
-- Whole numbers larger than 9,007,199,254,740,992 can lose their last digits when you read them, because Cloudflare sends them as JSON decimals. The database stores them exactly. To read every digit, use `cast(x as text)`.
-- Cloudflare allows 1,200 API calls in 5 minutes for each Cloudflare user. This limit includes the calls from the dashboard and from your other tokens. After that, Cloudflare blocks all calls for 5 minutes (https://developers.cloudflare.com/fundamentals/api/reference/limits/). The driver reads the tables of one database in 2 calls, plus 1 more call for each 200 extra lookups in a large database. It keeps the result for 30 seconds.
-- A statement can have a maximum of 100 bound values (https://developers.cloudflare.com/d1/platform/limits/). SQL that holds more than one statement cannot have bound values.
-- Grid editing works only for a query that reads from one table, with no joins, grouping or unions.
-- After an insert, the only generated key that the driver can return is the row ID.
-- Primary keys and foreign keys have names only when the CREATE TABLE statement gives them names.
-- The tree does not show virtual tables, for example full-text search tables. You can still query them.
+- **No transactions.** Each statement is saved when it runs, so you cannot roll back. A batch, or SQL that holds more than one statement, is saved completely or not at all.
+- **No reply from Cloudflare.** If Cloudflare does not reply, a change can be saved or not saved. The error message tells you this.
+- **Large numbers.** Whole numbers larger than 9,007,199,254,740,992 can lose their last digits when you read them, because Cloudflare sends them as JSON decimals. The database stores them exactly. To read every digit, use `cast(x as text)`.
+- **Rate limit.** Cloudflare allows 1,200 API calls in 5 minutes for each Cloudflare user, including calls from the dashboard and your other tokens. After that, Cloudflare blocks all calls for 5 minutes ([Cloudflare docs](https://developers.cloudflare.com/fundamentals/api/reference/limits/)). The driver keeps the table list for 30 seconds to make fewer calls.
+- **Bound values.** A statement can have a maximum of 100 bound values ([Cloudflare docs](https://developers.cloudflare.com/d1/platform/limits/)). SQL that holds more than one statement cannot have bound values.
+- **Grid editing** works only for a query that reads from one table, with no joins, grouping or unions.
+- **Generated keys.** After an insert, the only generated key that the driver can return is the row ID.
+- **Key names.** Primary keys and foreign keys have names only when the `CREATE TABLE` statement gives them names.
+- **Virtual tables**, for example full-text search tables, do not show in the tree. You can still query them.
 
+## Build from source
 
-## Build
-
-You need Java 17 or later.
+You need Java 17 or later to run the build. Gradle downloads any other Java version that the build needs.
 
 ```sh
 ./gradlew build
@@ -124,15 +159,19 @@ You need Java 17 or later.
 
 The build makes two files:
 
-- The driver: `build/libs/d1-jdbc-<version>-all.jar`
-- The plugin: `ide-plugin/build/distributions/d1-jdbc-ide-plugin-<version>.zip`
+| File | Path |
+| --- | --- |
+| The driver | `build/libs/d1-jdbc-<version>-all.jar` |
+| The plugin | `ide-plugin/build/distributions/d1-jdbc-ide-plugin-<version>.zip` |
 
-The plugin build downloads PhpStorm to compile against, which is large. To use an installed PhpStorm instead, add `-PlocalIde=<path to PhpStorm>`.
+The plugin build downloads PhpStorm to compile against, which is large. To use an installed PhpStorm, add `-PlocalIde=<path to PhpStorm>`.
 
-A release build, made with `-PreleaseVersion`, sets the plugin to download the driver from the GitHub release with the same version. Any other build sets the plugin to use the driver jar in `build/libs`, so you can test the plugin before a release.
+A release build, made with `-PreleaseVersion=<version>`, sets the plugin to download the driver from the GitHub release with the same version. Any other build sets the plugin to use the driver jar in `build/libs`, so that you can test the plugin before a release.
 
 The tests use a stub server and an in-memory SQLite database. To also run the live tests, copy `.env.example` to `.env`, then add the details of a test database. The live tests make and delete their own tables.
 
 ## Licence
 
-MIT. See `LICENSE`.
+MIT. See [LICENSE](LICENSE).
+
+D1 JDBC Connector is not affiliated with or endorsed by Cloudflare, Inc. Cloudflare and the Cloudflare logo are trademarks and/or registered trademarks of Cloudflare, Inc. in the United States and other jurisdictions.
