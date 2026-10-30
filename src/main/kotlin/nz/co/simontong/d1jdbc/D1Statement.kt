@@ -549,10 +549,7 @@ open class D1Statement(
 	 * @throws SQLException when it doesn't implement the interface
 	 */
 	override fun <T : Any?> unwrap(iface: Class<T>): T {
-		if (!iface.isInstance(this)) {
-			throw SQLException("The statement is not a ${iface.name}.")
-		}
-		return iface.cast(this)
+		return unwrapAs(this, iface, "The statement")
 	}
 
 	/** @return whether this statement implements the interface */

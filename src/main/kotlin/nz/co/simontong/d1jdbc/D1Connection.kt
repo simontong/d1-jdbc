@@ -647,10 +647,7 @@ class D1Connection(
 	 * @throws SQLException when it doesn't implement the interface
 	 */
 	override fun <T : Any?> unwrap(iface: Class<T>): T {
-		if (!iface.isInstance(this)) {
-			throw SQLException("The connection is not a ${iface.name}.")
-		}
-		return iface.cast(this)
+		return unwrapAs(this, iface, "The connection")
 	}
 
 	/** @return whether this connection implements the interface */
@@ -674,4 +671,20 @@ private val ISOLATION_LEVELS = setOf(
  */
 internal fun notSupported(feature: String): SQLFeatureNotSupportedException {
 	return SQLFeatureNotSupportedException("Not supported by the D1 driver: $feature.", "0A000")
+}
+
+/**
+ * Returns a JDBC object as the interface a caller asks for.
+ *
+ * @param wrapper the driver's object
+ * @param iface interface to unwrap to
+ * @param name name of the object for the error, such as "The statement"
+ * @return the object as the interface
+ * @throws SQLException when it doesn't implement the interface
+ */
+internal fun <T> unwrapAs(wrapper: Any, iface: Class<T>, name: String): T {
+	if (!iface.isInstance(wrapper)) {
+		throw SQLException("$name is not a ${iface.name}.")
+	}
+	return iface.cast(wrapper)
 }

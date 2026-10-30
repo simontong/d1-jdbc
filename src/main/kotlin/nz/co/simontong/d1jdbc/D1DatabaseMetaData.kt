@@ -501,10 +501,7 @@ class D1DatabaseMetaData(
 	 * @throws SQLException when it doesn't implement the interface
 	 */
 	override fun <T : Any?> unwrap(iface: Class<T>): T {
-		if (!iface.isInstance(this)) {
-			throw SQLException("The database metadata is not a ${iface.name}.")
-		}
-		return iface.cast(this)
+		return unwrapAs(this, iface, "The database metadata")
 	}
 
 	/** @return whether this object implements the interface */

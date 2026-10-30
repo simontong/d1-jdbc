@@ -721,10 +721,7 @@ class D1ResultSet internal constructor(
 	 * @throws SQLException when it doesn't implement the interface
 	 */
 	override fun <T : Any?> unwrap(iface: Class<T>): T {
-		if (!iface.isInstance(this)) {
-			throw SQLException("The result set is not a ${iface.name}.")
-		}
-		return iface.cast(this)
+		return unwrapAs(this, iface, "The result set")
 	}
 
 	/** @return whether this result set implements the interface */

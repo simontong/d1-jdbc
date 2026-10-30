@@ -180,10 +180,7 @@ class D1ResultSetMetaData internal constructor(
 	 * @throws SQLException when it doesn't implement the interface
 	 */
 	override fun <T : Any?> unwrap(iface: Class<T>): T {
-		if (!iface.isInstance(this)) {
-			throw SQLException("The result set metadata is not a ${iface.name}.")
-		}
-		return iface.cast(this)
+		return unwrapAs(this, iface, "The result set metadata")
 	}
 
 	/** @return whether this object implements the interface */

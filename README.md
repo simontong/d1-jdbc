@@ -58,8 +58,7 @@ The JetBrains help has more about custom drivers (https://www.jetbrains.com/help
 1. Add a data source that uses the D1 driver.
 2. Set the URL to `jdbc:d1://<account id>`.
 3. Leave the user empty. Put the API token in the password field.
-4. If the Advanced tab shows "Introspect using JDBC metadata", turn it on.
-5. Click Test Connection.
+4. Click Test Connection.
 
 The tree shows each database by name. To pick the database that your SQL runs on, use the database switcher in the query console.
 
@@ -69,11 +68,11 @@ To start on one database, add its ID to the URL: `jdbc:d1://<account id>/<databa
 
 Add settings to the end of the URL, for example `jdbc:d1://<account id>?readOnly=true`. You can also set them on the Advanced tab of the data source.
 
-| Setting | Default | What it does |
-| --- | --- | --- |
-| `password` | none | Your Cloudflare API token. Put it in the password field. The driver does not accept it in the URL, because IDEs save URLs as plain text. |
-| `readOnly` | `false` | Blocks statements that change data. |
-| `schemaCacheSeconds` | `30` | How long the driver keeps the table list before it reads it again. `0` reads it every time. |
+| Setting              | Default | What it does                                                                                                                             |
+|----------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------|
+| `password`           | none    | Your Cloudflare API token. Put it in the password field. The driver does not accept it in the URL, because IDEs save URLs as plain text. |
+| `readOnly`           | `false` | Blocks statements that change data.                                                                                                      |
+| `schemaCacheSeconds` | `30`    | How long the driver keeps the table list before it reads it again. `0` reads it every time.                                              |
 
 Read-only mode is a check in the driver. For a guarantee from Cloudflare, also use a token with D1 Read permission.
 
@@ -82,11 +81,12 @@ Read-only mode is a check in the driver. For a guarantee from Cloudflare, also u
 - D1 has no transactions that you can control. Each statement is saved when it runs, so rollback is not possible. A batch, or SQL that holds more than one statement, is saved completely or not at all.
 - If Cloudflare does not reply, a statement that changes data can be saved or not saved. The error message tells you this.
 - Whole numbers larger than 9,007,199,254,740,992 can lose their last digits when you read them, because Cloudflare sends them as JSON decimals. The database stores them exactly. To read every digit, use `cast(x as text)`.
-- Cloudflare allows 1,200 API calls in 5 minutes for each Cloudflare user. This limit includes the calls from the dashboard and from your other tokens. After that, Cloudflare blocks all calls for 5 minutes (https://developers.cloudflare.com/fundamentals/api/reference/limits/). The driver reads the tables of one database in 2 calls, and keeps the result for 30 seconds.
+- Cloudflare allows 1,200 API calls in 5 minutes for each Cloudflare user. This limit includes the calls from the dashboard and from your other tokens. After that, Cloudflare blocks all calls for 5 minutes (https://developers.cloudflare.com/fundamentals/api/reference/limits/). The driver reads the tables of one database in 2 calls, plus 1 more call for each 200 extra lookups in a large database. It keeps the result for 30 seconds.
 - A statement can have a maximum of 100 bound values (https://developers.cloudflare.com/d1/platform/limits/). SQL that holds more than one statement cannot have bound values.
 - Grid editing works only for a query that reads from one table, with no joins, grouping or unions.
 - After an insert, the only generated key that the driver can return is the row ID.
 - Primary keys and foreign keys have names only when the CREATE TABLE statement gives them names.
+- The tree does not show virtual tables, for example full-text search tables. You can still query them.
 
 The behaviour that the Cloudflare docs do not describe comes from live tests. The results are in `docs/research/live-tests.md`.
 
