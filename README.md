@@ -1,4 +1,4 @@
-# D1 JDBC driver
+# D1 JDBC Connector
 
 A JDBC driver for Cloudflare D1. Use it to browse, query and edit D1 databases in DataGrip, PhpStorm and other JetBrains IDEs, or in any JDBC tool.
 
@@ -38,7 +38,7 @@ In the Cloudflare dashboard, press Ctrl+K (Cmd+K on a Mac), then select Copy acc
 
 1. Download the plugin jar from the releases page.
 2. In the IDE, open Settings | Plugins | ⚙ | Install Plugin from Disk, and select the jar.
-3. Add a data source and select Cloudflare D1. The IDE downloads the driver.
+3. Add a data source and select D1 JDBC Connector. The IDE downloads the driver.
 4. Do the steps in "Connect to D1".
 
 ### Without the plugin

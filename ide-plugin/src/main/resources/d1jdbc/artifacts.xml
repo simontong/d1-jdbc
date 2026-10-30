@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <artifacts>
-	<artifact id="Cloudflare D1 JDBC" name="Cloudflare D1 JDBC">
+	<artifact id="D1 JDBC Connector" name="D1 JDBC Connector">
 		<version version="${version}">
 			<item url="${driverUrl}"/>
 			<item type="license" url="${licenseUrl}"/>
