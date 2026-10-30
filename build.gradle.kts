@@ -1,6 +1,13 @@
 plugins {
 	alias(libs.plugins.kotlin.jvm)
 	alias(libs.plugins.shadow)
+	alias(libs.plugins.ktlint)
+}
+
+// Checks Kotlin style. The baseline lists the code written before ktlint was added.
+ktlint {
+	version = libs.versions.ktlint.cli
+	baseline = file("config/ktlint/baseline.xml")
 }
 
 group = "nz.co.simontong"
