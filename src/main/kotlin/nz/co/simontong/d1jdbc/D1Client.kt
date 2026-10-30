@@ -190,7 +190,7 @@ class D1Client internal constructor(
 				throw unreadableList("database", error)
 			}
 			databases += found
-			if (found.isEmpty() || databases.size >= total) {
+			if (found.isEmpty() || databases.size >= total || page >= MAX_PAGES) {
 				return databases
 			}
 			page++
@@ -240,7 +240,7 @@ class D1Client internal constructor(
 				throw unreadableList("account", error)
 			}
 			accounts += found
-			if (found.size < ACCOUNTS_PER_PAGE) {
+			if (found.size < ACCOUNTS_PER_PAGE || page >= MAX_PAGES) {
 				return accounts
 			}
 			page++
@@ -641,6 +641,9 @@ class D1Client internal constructor(
 
 		/** Databases asked for per page of the list, which is Cloudflare's most. */
 		private const val DATABASES_PER_PAGE = 10000
+
+		/** Most pages of a list to read, so a list that never ends can't loop forever. */
+		private const val MAX_PAGES = 1_000
 
 		/** Accounts asked for per page of the list, which is Cloudflare's most. */
 		private const val ACCOUNTS_PER_PAGE = 50

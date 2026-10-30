@@ -38,6 +38,7 @@ import java.util.concurrent.TimeoutException
 import java.util.concurrent.locks.ReentrantLock
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
@@ -456,20 +457,32 @@ internal class SignInCredentials(
 	 * @throws SQLException when a field is missing
 	 */
 	private fun tokensFrom(body: JsonObject, previous: SignInTokens?): SignInTokens {
-		val accessToken = body["access_token"]?.jsonPrimitive?.content
+		val accessToken = textField(body, "access_token")
 		// OAuth lets a refresh reply leave out the refresh token, which then stays the same.
-		val refreshToken = body["refresh_token"]?.jsonPrimitive?.content ?: previous?.refreshToken
+		val refreshToken = textField(body, "refresh_token") ?: previous?.refreshToken
 		if (accessToken == null || refreshToken == null) {
 			throw SQLNonTransientConnectionException("Cloudflare's sign-in sent a reply with no tokens in it.", "08004")
 		}
-		val lifetime = body["expires_in"]?.jsonPrimitive?.longOrNull ?: DEFAULT_LIFETIME_SECONDS
+		// A very short or odd lifetime would make every call refresh, so keep it within sensible bounds.
+		val lifetime = ((body["expires_in"] as? JsonPrimitive)?.longOrNull ?: DEFAULT_LIFETIME_SECONDS)
+			.coerceIn(MIN_LIFETIME_SECONDS, MAX_LIFETIME_SECONDS)
 		return SignInTokens(
 			accessToken = accessToken,
 			refreshToken = refreshToken,
 			expiresAt = clock.instant().plusSeconds(lifetime),
-			scopes = body["scope"]?.jsonPrimitive?.content?.split(" ")?.filter { it.isNotEmpty() }?.toSet()
-				?: previous?.scopes.orEmpty(),
+			scopes = textField(body, "scope")?.split(" ")?.filter { it.isNotEmpty() }?.toSet() ?: previous?.scopes.orEmpty(),
 		)
+	}
+
+	/**
+	 * Reads a text field from a reply, ignoring one that isn't text.
+	 *
+	 * @param body parsed reply
+	 * @param name field name
+	 * @return the text, or null when missing or not text
+	 */
+	private fun textField(body: JsonObject, name: String): String? {
+		return (body[name] as? JsonPrimitive)?.takeIf { it.isString }?.content
 	}
 
 	/**
@@ -507,16 +520,19 @@ internal class SignInCredentials(
 	 * @throws SQLException when the file can't be written
 	 */
 	private fun writeTokenFile(saving: SignInTokens) {
-		val json = JsonObject(mapOf(settings.clientId to JsonObject(mapOf(
+		val entry = JsonObject(mapOf(
 			"accessToken" to JsonPrimitive(saving.accessToken),
 			"refreshToken" to JsonPrimitive(saving.refreshToken),
 			"expiresAt" to JsonPrimitive(saving.expiresAt.epochSecond.toString()),
 			"scopes" to JsonPrimitive(saving.scopes.sorted().joinToString(" ")),
-		))))
+		))
+		// Keep the sign-ins of other OAuth clients that share the file.
+		val json = JsonObject(otherClientsInFile() + (settings.clientId to entry))
+		var temp: Path? = null
 		try {
 			val folder = settings.tokenFile.toAbsolutePath().parent
 			Files.createDirectories(folder)
-			val temp = Files.createTempFile(folder, ".sign-in", ".tmp")
+			temp = Files.createTempFile(folder, ".sign-in", ".tmp")
 			restrictToOwner(temp)
 			Files.writeString(temp, json.toString())
 			try {
@@ -524,13 +540,32 @@ internal class SignInCredentials(
 			} catch (error: AtomicMoveNotSupportedException) {
 				Files.move(temp, settings.tokenFile, StandardCopyOption.REPLACE_EXISTING)
 			}
+			temp = null
 		} catch (error: IOException) {
 			throw SQLNonTransientConnectionException(
 				"Could not save the Cloudflare sign-in to ${settings.tokenFile}.",
 				"08001",
 				error,
 			)
+		} finally {
+			temp?.let { runCatching { Files.deleteIfExists(it) } }
 		}
+	}
+
+	/**
+	 * Reads the sign-ins of other OAuth clients from the token file.
+	 *
+	 * @return each other client's entry by client ID, or none when the file is missing or unreadable
+	 */
+	private fun otherClientsInFile(): Map<String, JsonElement> {
+		val saved = try {
+			Json.parseToJsonElement(Files.readString(settings.tokenFile)) as? JsonObject
+		} catch (error: IOException) {
+			null
+		} catch (error: SerializationException) {
+			null
+		}
+		return saved.orEmpty().filterKeys { it != settings.clientId }
 	}
 
 	/**
@@ -647,6 +682,12 @@ internal class SignInCredentials(
 		/** How long to wait for the token endpoint. */
 		private val TOKEN_TIMEOUT = Duration.ofSeconds(30)
 
+		/** Shortest access token lifetime the driver accepts, so refreshes can't run on every call. */
+		private const val MIN_LIFETIME_SECONDS = 300L
+
+		/** Longest access token lifetime the driver accepts. */
+		private const val MAX_LIFETIME_SECONDS = 86_400L
+
 		/** Access token lifetime to assume when Cloudflare doesn't say, matching what it sends today. */
 		private const val DEFAULT_LIFETIME_SECONDS = 3599L
 
@@ -678,6 +719,26 @@ internal class SignInCredentials(
 		 * @param reply completes with the query when it belongs to this sign-in
 		 */
 		private fun answerCallback(exchange: HttpExchange, state: String, reply: CompletableFuture<Map<String, String>>) {
+			// A malformed reply must not stop the listener, so any failure gets a plain error page.
+			try {
+				answerCallbackOrThrow(exchange, state, reply)
+			} catch (error: Exception) {
+				runCatching { exchange.sendResponseHeaders(400, -1) }
+			} finally {
+				exchange.close()
+			}
+		}
+
+		/**
+		 * Answers Cloudflare's redirect, throwing on a malformed request.
+		 *
+		 * @param exchange the browser's request
+		 * @param state the state this sign-in sent
+		 * @param reply completes with the query when it belongs to this sign-in
+		 * @throws IllegalArgumentException when the query isn't valid URL text
+		 * @throws IOException when the browser goes away
+		 */
+		private fun answerCallbackOrThrow(exchange: HttpExchange, state: String, reply: CompletableFuture<Map<String, String>>) {
 			val query = queryValues(exchange.requestURI.rawQuery.orEmpty())
 			val matches = query["state"] == state
 			val (title, detail) = when {

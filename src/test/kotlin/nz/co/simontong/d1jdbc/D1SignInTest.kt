@@ -136,6 +136,27 @@ class D1SignInTest {
 		assertFalse(Files.readString(tokenFile).contains("code_verifier"))
 	}
 
+	/** Checks a malformed request to the callback doesn't stop the sign-in, and other clients' entries stay. */
+	@Test
+	fun `survives a malformed callback and keeps other clients in the file`() {
+		Files.writeString(tokenFile, """{"other-client":{"accessToken":"x","refreshToken":"y","expiresAt":"0","scopes":""}}""")
+		val prodding = browser { values ->
+			// Java's URI class refuses a bad escape, so send the request by hand.
+			val port = URI.create(query(opened.last()).getValue("redirect_uri")).port
+			java.net.Socket("127.0.0.1", port).use { socket ->
+				socket.getOutputStream().write("GET /callback?state=%zz HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n".toByteArray())
+				socket.getInputStream().readAllBytes()
+			}
+			mapOf("code" to StubSignInServer.GOOD_CODE, "state" to values.getValue("state"))
+		}
+
+		credentials(prodding).signInWithBrowser()
+
+		val saved = Files.readString(tokenFile)
+		assertTrue(saved.contains("other-client"))
+		assertTrue(saved.contains("refresh-1"))
+	}
+
 	/** Checks a saved sign-in is reused by a new connection without opening the browser. */
 	@Test
 	fun `reuses the saved sign-in`() {
