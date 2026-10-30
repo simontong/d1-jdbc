@@ -38,12 +38,12 @@ The sign-in is saved in `d1-jdbc/cloudflare-sign-in.json` in your config folder:
 
 ### API token
 
-1. [Create a token](https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=%5B%7B%22key%22%3A%22d1%22%2C%22type%22%3A%22edit%22%7D%5D&accountId=*&zoneId=all&name=D1%20JDBC) with D1 Edit, or D1 Read for read-only use.
+1. [Create your token](https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=%5B%7B%22key%22%3A%22d1%22%2C%22type%22%3A%22edit%22%7D%5D&accountId=*&zoneId=all&name=D1%20JDBC) with D1 Edit, or D1 Read for read-only use.
 2. Copy your account ID: press Ctrl+K (Cmd+K on a Mac) in the Cloudflare dashboard, then select **Copy account ID**.
-3. Put the account ID in **Account** and the token in **API token**, then click **Test Connection**.
+3. Put your account ID in **Account** and your token in **API token**, then click **Test Connection**.
 
 > [!IMPORTANT]
-> A token reaches every D1 database in the account. Cloudflare tokens cannot be limited to one database.
+> Your token can reach every D1 database in your account, as Cloudflare tokens can't be limited to one database.
 
 ## Databases
 
@@ -73,7 +73,7 @@ Add settings to the URL, for example `?readOnly=true`, or set them on the data s
 | `tokenFile` | see [Cloudflare sign-in](#cloudflare-sign-in) | Where the sign-in is saved. |
 | `openBrowser` | `true` | `false` stops a connection from opening the browser. The plugin sets this for background connections. |
 
-Read-only mode is enforced by the driver. For a guarantee from Cloudflare, use a D1 Read token, or sign in without D1 Write.
+Read-only mode is enforced by the driver. For a guarantee from Cloudflare, give your token D1 Read only, or sign in without D1 Write.
 
 ## Limits
 
