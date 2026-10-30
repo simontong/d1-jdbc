@@ -533,6 +533,19 @@ class D1PreparedStatement(
 	}
 
 	/**
+	 * Checks a stream length a caller gave, which must fit in memory as one value.
+	 *
+	 * @param parameterIndex parameter number, for the error message
+	 * @param length the length, or null for none
+	 * @throws SQLException when it's negative or too large
+	 */
+	private fun checkLength(parameterIndex: Int, length: Long?) {
+		if (length != null && (length < 0 || length > Int.MAX_VALUE - 8)) {
+			throw SQLException("The length for parameter $parameterIndex must be between 0 and 2 GB.", "HY090")
+		}
+	}
+
+	/**
 	 * Reads up to a number of bytes from a stream.
 	 *
 	 * @param parameterIndex parameter number, for the error message
@@ -542,6 +555,7 @@ class D1PreparedStatement(
 	 * @throws SQLException when the stream fails
 	 */
 	private fun readBytes(parameterIndex: Int, stream: InputStream, length: Long?): ByteArray {
+		checkLength(parameterIndex, length)
 		try {
 			return if (length == null) stream.readAllBytes() else stream.readNBytes(length.toInt())
 		} catch (error: IOException) {
@@ -559,6 +573,7 @@ class D1PreparedStatement(
 	 * @throws SQLException when the reader fails
 	 */
 	private fun readText(parameterIndex: Int, reader: Reader, length: Long?): String {
+		checkLength(parameterIndex, length)
 		try {
 			if (length == null) {
 				return reader.readText()

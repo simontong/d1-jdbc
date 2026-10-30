@@ -3,6 +3,7 @@ package nz.co.simontong.d1jdbc
 import java.net.URI
 import java.net.URISyntaxException
 import java.net.URLDecoder
+import java.nio.file.InvalidPathException
 import java.nio.file.Path
 import java.sql.Connection
 import java.sql.Driver
@@ -281,7 +282,14 @@ data class D1Settings(
 			val options = urlOptions + info.stringPropertyNames().associateWith { info.getProperty(it) }
 			val auth = auth(options["auth"])
 
-			val apiToken = options["password"].orEmpty()
+			val apiToken = options["password"].orEmpty().trim()
+			// A header can't hold spaces or control characters, which a pasted token can pick up.
+			if (apiToken.any { it <= ' ' || it > '~' }) {
+				throw SQLNonTransientConnectionException(
+					"The API token has spaces, line breaks or other unusual characters in it. Copy it again.",
+					"28000",
+				)
+			}
 			if (auth == D1Auth.TOKEN && apiToken.isBlank()) {
 				throw SQLNonTransientConnectionException(
 					"No Cloudflare API token was given. Enter it as the connection password, or add ?auth=browser to the "
@@ -306,7 +314,7 @@ data class D1Settings(
 				schemaCacheSeconds = schemaCacheSeconds(options["schemaCacheSeconds"]),
 				auth = auth,
 				signInBaseUrl = signInBaseUrl(options["signInBaseUrl"]),
-				tokenFile = options["tokenFile"]?.takeIf { it.isNotBlank() }?.let { Path.of(it.trim()) } ?: defaultTokenFile(),
+				tokenFile = tokenFile(options["tokenFile"]),
 				openBrowser = options["openBrowser"]?.trim()?.lowercase() != "false",
 			)
 		}
@@ -334,6 +342,22 @@ data class D1Settings(
 				)
 			}
 			return uri
+		}
+
+		/**
+		 * Reads the sign-in file setting.
+		 *
+		 * @param value setting text, or null for the default file
+		 * @return the file
+		 * @throws SQLException when the text isn't a valid path
+		 */
+		private fun tokenFile(value: String?): Path {
+			val text = value?.trim()?.takeIf { it.isNotEmpty() } ?: return defaultTokenFile()
+			return try {
+				Path.of(text)
+			} catch (error: InvalidPathException) {
+				throw SQLNonTransientConnectionException("tokenFile isn't a valid file path: $text", "08001", error)
+			}
 		}
 
 		/**
@@ -418,8 +442,9 @@ data class D1Settings(
 
 /** The version the driver was built as, read from the jar. */
 internal val DRIVER_VERSION: String = D1Driver::class.java.getResourceAsStream("version.properties")
-	.use { stream -> java.util.Properties().also { it.load(stream) } }
-	.getProperty("version")
+	?.use { stream -> java.util.Properties().also { it.load(stream) } }
+	?.getProperty("version")
+	?: "0.0.0"
 
 /** The first number of [DRIVER_VERSION]. */
 internal val DRIVER_MAJOR_VERSION: Int = DRIVER_VERSION.split(".")[0].toInt()

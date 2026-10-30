@@ -656,20 +656,24 @@ class D1Connection(
 			return true
 		}
 
-		// With no database chosen, listing the databases checks the token instead.
-		val id = try {
-			chosenDatabaseId()
-		} catch (error: SQLException) {
-			return false
-		}
-		val query = listOf(D1Query("select 1"))
+		// isValid must answer, not throw, so any failure means the connection isn't usable.
+		val limit = Duration.ofSeconds(timeout.toLong()).takeIf { timeout > 0 }
 		try {
+			// Load the list within the time limit first, as finding the chosen database may need it.
+			val listedNow = databaseList == null
+			if (listedNow) {
+				databases(timeout = limit)
+			}
+			// With no database chosen, listing the databases checks the token instead.
+			val id = chosenDatabaseId()
+			val query = listOf(D1Query("select 1"))
 			when {
-				id == null -> databases(reload = true, Duration.ofSeconds(timeout.toLong()).takeIf { timeout > 0 })
-				timeout > 0 -> clientFor(id).execute(id, query, Duration.ofSeconds(timeout.toLong()))
+				id == null && listedNow -> Unit
+				id == null -> databases(reload = true, timeout = limit)
+				limit != null -> clientFor(id).execute(id, query, limit)
 				else -> clientFor(id).execute(id, query)
 			}
-		} catch (error: SQLException) {
+		} catch (error: Exception) {
 			return false
 		}
 		lastGoodReply = System.nanoTime()

@@ -272,7 +272,7 @@ class D1Client internal constructor(
 			throw unreadableReply(response, error)
 		}
 		if (!success) {
-			throw errorFor(response.statusCode(), body.getValue("errors").jsonArray.first().jsonObject)
+			throw failureFrom(response, body)
 		}
 		return body
 	}
@@ -363,7 +363,7 @@ class D1Client internal constructor(
 	 */
 	private fun readReply(status: Int, body: JsonObject): List<D1Result> {
 		if (!body.getValue("success").jsonPrimitive.boolean) {
-			throw errorFor(status, body.getValue("errors").jsonArray.first().jsonObject)
+			throw errorFor(status, firstError(body))
 		}
 		return body.getValue("result").jsonArray.map { parseResult(it.jsonObject) }
 	}
@@ -455,6 +455,34 @@ class D1Client internal constructor(
 	}
 
 	/**
+	 * Builds the error a failed reply carries, or an unreadable-reply error when its error list is
+	 * malformed.
+	 *
+	 * @param response the reply
+	 * @param body its parsed body
+	 * @return the exception to throw
+	 */
+	private fun failureFrom(response: HttpResponse<String>, body: JsonObject): SQLException {
+		return try {
+			errorFor(response.statusCode(), firstError(body))
+		} catch (error: IllegalArgumentException) {
+			unreadableReply(response, error)
+		} catch (error: NoSuchElementException) {
+			unreadableReply(response, error)
+		}
+	}
+
+	/**
+	 * Finds the first entry of a reply's `errors` array.
+	 *
+	 * @param body parsed reply body
+	 * @return the entry, or null when there is none or it isn't an object
+	 */
+	private fun firstError(body: JsonObject): JsonObject? {
+		return (body["errors"] as? JsonArray)?.firstOrNull() as? JsonObject
+	}
+
+	/**
 	 * Builds the error for a list the driver can't read.
 	 *
 	 * @param item what the list holds, like "database"
@@ -513,10 +541,13 @@ class D1Client internal constructor(
 	 * Turns a Cloudflare error entry into the matching SQL exception.
 	 *
 	 * @param status HTTP status code of the reply
-	 * @param error one entry of the reply's `errors` array
+	 * @param error one entry of the reply's `errors` array, or null when there is none
 	 * @return the exception to throw
 	 */
-	private fun errorFor(status: Int, error: JsonObject): SQLException {
+	private fun errorFor(status: Int, error: JsonObject?): SQLException {
+		if (error == null) {
+			return SQLException("Cloudflare's API failed with HTTP $status and gave no reason.", "HY000")
+		}
 		val code = error.getValue("code").jsonPrimitive.int
 		val message = error.getValue("message").jsonPrimitive.content
 		if (code != SQL_ERROR_CODE) {

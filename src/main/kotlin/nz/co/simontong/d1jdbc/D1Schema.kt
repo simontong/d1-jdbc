@@ -1,6 +1,7 @@
 package nz.co.simontong.d1jdbc
 
 import java.time.Duration
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
@@ -167,10 +168,16 @@ private fun records(result: D1Result?): List<Map<String, JsonElement>> {
  * @param client client for the account
  * @param databaseId database to run them on
  * @param queries statements to run
+ * @param failing collects each statement that failed on its own
  * @return one result per statement, null for each that failed
  * @throws java.sql.SQLException when Cloudflare fails for any reason other than the SQL
  */
-private fun runSkippingFailures(client: D1Client, databaseId: String, queries: List<D1Query>): List<D1Result?> {
+private fun runSkippingFailures(
+	client: D1Client,
+	databaseId: String,
+	queries: List<D1Query>,
+	failing: MutableSet<String>,
+): List<D1Result?> {
 	try {
 		return client.execute(databaseId, queries, retry = true)
 	} catch (error: java.sql.SQLException) {
@@ -178,12 +185,13 @@ private fun runSkippingFailures(client: D1Client, databaseId: String, queries: L
 			throw error
 		}
 		if (queries.size == 1) {
+			failing += queries.single().sql
 			return listOf(null)
 		}
 	}
 	val half = queries.size / 2
-	return runSkippingFailures(client, databaseId, queries.subList(0, half)) +
-		runSkippingFailures(client, databaseId, queries.subList(half, queries.size))
+	return runSkippingFailures(client, databaseId, queries.subList(0, half), failing) +
+		runSkippingFailures(client, databaseId, queries.subList(half, queries.size), failing)
 }
 
 /**
@@ -191,10 +199,15 @@ private fun runSkippingFailures(client: D1Client, databaseId: String, queries: L
  *
  * @param client client for the account
  * @param databaseId database to read
+ * @param failing statements to leave out, which also collects new failures
  * @return the schema
  * @throws java.sql.SQLException when D1 reports an error
  */
-internal fun loadSchema(client: D1Client, databaseId: String): D1Schema {
+internal fun loadSchema(
+	client: D1Client,
+	databaseId: String,
+	failing: MutableSet<String> = mutableSetOf(),
+): D1Schema {
 	val (tableList, schemaList) = client.execute(
 		databaseId,
 		listOf(
@@ -223,7 +236,11 @@ internal fun loadSchema(client: D1Client, databaseId: String): D1Schema {
 		queries += D1Query("pragma foreign_key_list($name)")
 	}
 	indexNames.forEach { queries += D1Query("pragma index_xinfo(${quoted(it)})") }
-	val results = queries.chunked(STATEMENTS_PER_REQUEST).flatMap { runSkippingFailures(client, databaseId, it) }
+	// Statements that failed last time, like a broken view's, are left out so they don't cost calls again.
+	val toSend = queries.filter { it.sql !in failing }
+	val sent = toSend.chunked(STATEMENTS_PER_REQUEST).flatMap { runSkippingFailures(client, databaseId, it, failing) }
+	val bySql = toSend.map { it.sql }.zip(sent).toMap()
+	val results = queries.map { bySql[it.sql] }
 
 	val indexColumns = indexNames.indices.associate { index ->
 		val columns = records(results[found.size * 3 + index])
@@ -323,6 +340,9 @@ internal class SchemaCache(
 	@Volatile
 	private var schema: D1Schema? = null
 
+	/** Schema statements that failed, left out of later loads until the schema is cleared. */
+	private val failing: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
 	@Volatile
 	private var loadedAt = 0L
 
@@ -339,7 +359,7 @@ internal class SchemaCache(
 			return cached
 		}
 		val loaded = try {
-			loadSchema(client, databaseId)
+			loadSchema(client, databaseId, failing)
 		} catch (error: RuntimeException) {
 			// A missing field or wrong type in D1's reply shows up as one of these.
 			throw java.sql.SQLNonTransientConnectionException(
@@ -357,6 +377,7 @@ internal class SchemaCache(
 	@Synchronized
 	fun clear() {
 		schema = null
+		failing.clear()
 	}
 
 	/**
