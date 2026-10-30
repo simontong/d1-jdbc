@@ -355,6 +355,14 @@ internal class SchemaCache(
 	fun clear() {
 		schema = null
 	}
+
+	/** Forgets the schema once it's too old to be used, which frees its memory. */
+	@Synchronized
+	fun dropIfStale() {
+		if (schema != null && clock() - loadedAt >= maxAge.toNanos()) {
+			schema = null
+		}
+	}
 }
 
 /** A declared type with an optional size, like `varchar(20)` or `decimal(10, 2)`. */

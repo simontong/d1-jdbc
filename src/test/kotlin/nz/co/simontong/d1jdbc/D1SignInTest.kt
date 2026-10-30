@@ -173,6 +173,29 @@ class D1SignInTest {
 		}
 	}
 
+	/** Checks a refusal that isn't about the token, such as an unticked account, doesn't use up the refresh token. */
+	@Test
+	fun `refreshes only when Cloudflare calls the token invalid`() {
+		val credentials = credentials()
+		credentials.token()
+
+		assertNull(credentials.renew("access-1", 10000))
+		assertEquals(1, signIn.requests.size)
+		assertEquals("access-2", credentials.renew("access-1", 9109))
+	}
+
+	/** Checks a refresh reply with no new refresh token keeps the old one, as OAuth allows. */
+	@Test
+	fun `keeps the refresh token when a refresh reply leaves it out`() {
+		val credentials = credentials()
+		credentials.token()
+		signIn.failure = 200 to """{"access_token":"access-new","expires_in":3599,"token_type":"bearer"}"""
+
+		assertEquals("access-new", credentials.renew("access-1", 9109))
+		assertTrue(Files.readString(tokenFile).contains("refresh-1"))
+		assertTrue(credentials.canWrite)
+	}
+
 	/** Checks a refresh token Cloudflare no longer accepts deletes the saved sign-in and asks for a new one. */
 	@Test
 	fun `asks to sign in again when the sign-in has ended`() {

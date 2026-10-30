@@ -67,7 +67,7 @@ class D1Driver : Driver {
 				"28000",
 			)
 		}
-		val accounts = D1Client("", signIn, settings.apiBaseUrl).listAccounts()
+		val accounts = signIn.accounts { D1Client("", signIn, settings.apiBaseUrl).listAccounts() }
 		if (accounts.isEmpty()) {
 			throw SQLInvalidAuthorizationSpecException(
 				"The Cloudflare sign-in reaches no accounts. Delete ${settings.tokenFile}, connect, and tick at least "

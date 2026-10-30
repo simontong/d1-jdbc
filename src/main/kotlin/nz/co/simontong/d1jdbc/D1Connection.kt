@@ -62,8 +62,9 @@ class D1Connection(
 	@Volatile
 	private var databaseList: List<D1DatabaseInfo>? = null
 
-	/** Each database's schema, kept for a short time so tools browsing it make few API calls. */
-	private val schemaCaches = ConcurrentHashMap<String, SchemaCache>()
+	/** When this connection last got a good reply from Cloudflare, from [System.nanoTime]. */
+	@Volatile
+	private var lastGoodReply = 0L
 
 	/**
 	 * Lists every account's databases, loading the list the first time or when asked to.
@@ -190,11 +191,13 @@ class D1Connection(
 		val id = currentDatabaseId()
 		val reads = statements.all { isReadOnlySql(it.sql) }
 		val client = clientFor(id)
-		return if (timeout != null) {
+		val results = if (timeout != null) {
 			client.execute(id, statements, timeout, retry = reads)
 		} else {
 			client.execute(id, statements, retry = reads)
 		}
+		lastGoodReply = System.nanoTime()
+		return results
 	}
 
 	/**
@@ -204,7 +207,14 @@ class D1Connection(
 	 * @return the cache
 	 */
 	private fun schemaCacheFor(id: String): SchemaCache {
-		return schemaCaches.computeIfAbsent(id) { SchemaCache(clientFor(id), id, Duration.ofSeconds(settings.schemaCacheSeconds)) }
+		val client = clientFor(id)
+		// Connections of one person share schemas, so a table one connection makes shows in the others.
+		val key = "${client.cacheKey}|$id|${settings.schemaCacheSeconds}"
+		// Drop schemas nobody has read for a while, so a long session doesn't hold every one ever seen.
+		sharedSchemaCaches.values.forEach { it.dropIfStale() }
+		return sharedSchemaCaches.computeIfAbsent(key) {
+			SchemaCache(client, id, Duration.ofSeconds(settings.schemaCacheSeconds))
+		}
 	}
 
 	/** The chosen database's schema cache. */
@@ -622,6 +632,11 @@ class D1Connection(
 			return false
 		}
 
+		// IDEs check before every query, so a good reply moments ago is enough and saves an API call.
+		if (System.nanoTime() - lastGoodReply < RECENT_REPLY.toNanos()) {
+			return true
+		}
+
 		// With no database chosen, listing the databases checks the token instead.
 		val id = try {
 			chosenDatabaseId()
@@ -638,7 +653,14 @@ class D1Connection(
 		} catch (error: SQLException) {
 			return false
 		}
+		lastGoodReply = System.nanoTime()
 		return true
+	}
+
+	/** Forgets every cached schema this connection can reach, so the next read asks D1 again. */
+	internal fun forgetSchemas() {
+		val keys = clients.map { it.cacheKey }.toSet()
+		sharedSchemaCaches.keys.filter { it.substringBefore("|") in keys }.forEach { sharedSchemaCaches[it]?.clear() }
 	}
 
 	/**
@@ -726,6 +748,12 @@ class D1Connection(
 	/** @return whether this connection implements the interface */
 	override fun isWrapperFor(iface: Class<*>): Boolean = iface.isInstance(this)
 }
+
+/** Schemas shared by every connection in this program, keyed by person, database and cache time. */
+private val sharedSchemaCaches = ConcurrentHashMap<String, SchemaCache>()
+
+/** How recent a good reply must be for [D1Connection.isValid] to skip its own check. */
+private val RECENT_REPLY = Duration.ofSeconds(5)
 
 /** The form of a D1 database ID. */
 private val UUID_PATTERN = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")

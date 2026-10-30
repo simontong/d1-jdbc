@@ -16,6 +16,7 @@ import java.sql.SQLTimeoutException
 import java.sql.SQLTransientConnectionException
 import java.sql.SQLTransientException
 import java.time.Duration
+import java.util.Random
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -95,6 +96,10 @@ class D1Client internal constructor(
 	private val requestTimeout: Duration = Duration.ofSeconds(60),
 	internal val accountName: String = accountId,
 ) {
+	/** Tells apart the people behind two clients, so only one person's connections share caches. */
+	internal val cacheKey: String
+		get() = "${credentials.cacheKey}@$baseUri"
+
 	/**
 	 * Makes a client that sends a fixed API token.
 	 *
@@ -129,11 +134,11 @@ class D1Client internal constructor(
 	): List<D1Result> {
 		val uri = URI.create("$baseUri/accounts/$accountId/d1/database/$databaseId/raw")
 		val body = requestJson(statements).toString()
-		val response = sendWithToken(timeout, retry) { token ->
+		val response = sendWithToken(timeout, retry) { token, timeLeft ->
 			HttpRequest.newBuilder(uri)
 				.header("Authorization", "Bearer $token")
 				.header("Content-Type", "application/json")
-				.timeout(timeout)
+				.timeout(timeLeft)
 				.POST(HttpRequest.BodyPublishers.ofString(body))
 				.build()
 		}
@@ -240,10 +245,10 @@ class D1Client internal constructor(
 	 * @throws SQLException when Cloudflare can't be reached or the reply reports a failure
 	 */
 	private fun getPage(uri: URI, timeout: Duration): JsonObject {
-		val response = sendWithToken(timeout, retry = true) { token ->
+		val response = sendWithToken(timeout, retry = true) { token, timeLeft ->
 			HttpRequest.newBuilder(uri)
 				.header("Authorization", "Bearer $token")
-				.timeout(timeout)
+				.timeout(timeLeft)
 				.GET()
 				.build()
 		}
@@ -262,23 +267,46 @@ class D1Client internal constructor(
 	}
 
 	/**
-	 * Sends a request with the current token, and once more with a new token if Cloudflare turns it down.
+	 * Sends a request with the current token, and once more with a new token if Cloudflare turns it
+	 * down, all within one time limit.
 	 *
-	 * @param timeout time limit set on the request, for the error message
+	 * @param timeout time limit for every try together
 	 * @param retry whether sending it again after a server error is safe
-	 * @param build builds the request around a token
+	 * @param build builds the request around a token and the time left
 	 * @return the last reply
-	 * @throws SQLException when the request fails, or no token can be had
+	 * @throws SQLException when the request fails, runs out of time, or no token can be had
 	 */
-	private fun sendWithToken(timeout: Duration, retry: Boolean, build: (String) -> HttpRequest): HttpResponse<String> {
+	private fun sendWithToken(
+		timeout: Duration,
+		retry: Boolean,
+		build: (String, Duration) -> HttpRequest,
+	): HttpResponse<String> {
+		val deadline = System.nanoTime() + timeout.toNanos()
 		val token = credentials.token()
-		val response = sendAndRetry(build(token), timeout, retry)
+		val response = sendAndRetry(deadline, timeout, retry) { build(token, it) }
 		if (response.statusCode() != 401 && response.statusCode() != 403) {
 			return response
 		}
 		// A sign-in token can end early, so get a new one and try once more.
-		val renewed = credentials.renew(token) ?: return response
-		return sendAndRetry(build(renewed), timeout, retry)
+		val renewed = credentials.renew(token, errorCode(response)) ?: return response
+		return sendAndRetry(deadline, timeout, retry) { build(renewed, it) }
+	}
+
+	/**
+	 * Reads the first Cloudflare error code from a reply.
+	 *
+	 * @param response the reply
+	 * @return the code, or null when the reply has none
+	 */
+	private fun errorCode(response: HttpResponse<String>): Int? {
+		return try {
+			val errors = Json.parseToJsonElement(response.body()).jsonObject["errors"]?.jsonArray
+			errors?.firstOrNull()?.jsonObject?.get("code")?.jsonPrimitive?.int
+		} catch (error: SerializationException) {
+			null
+		} catch (error: IllegalArgumentException) {
+			null
+		}
 	}
 
 	/**
@@ -330,27 +358,54 @@ class D1Client internal constructor(
 	/**
 	 * Sends a request, and when asked, sends it again after short waits if Cloudflare's servers fail.
 	 *
-	 * @param request request to send
-	 * @param timeout time limit set on the request, for the error message
+	 * @param deadline when the time limit ends, from [System.nanoTime]
+	 * @param timeout the whole time limit, for the error message
 	 * @param retry whether sending it again is safe
+	 * @param build builds the request with the time left
 	 * @return the last reply
 	 * @throws SQLException when the request times out, can't connect, is cut off or is stopped
 	 */
-	private fun sendAndRetry(request: HttpRequest, timeout: Duration, retry: Boolean): HttpResponse<String> {
+	private fun sendAndRetry(
+		deadline: Long,
+		timeout: Duration,
+		retry: Boolean,
+		build: (Duration) -> HttpRequest,
+	): HttpResponse<String> {
 		val waits = if (retry) RETRY_WAITS else emptyList()
 		for (wait in waits) {
-			val response = send(request, timeout)
+			val response = send(build(timeLeft(deadline, timeout)), timeout)
 			if (response.statusCode() < 500) {
 				return response
 			}
+			// Cloudflare's retry guide asks for a random spread, so many clients don't retry at once.
+			val spread = wait.toMillis() + (wait.toMillis() * random.nextDouble() * RETRY_SPREAD).toLong()
+			if (System.nanoTime() + Duration.ofMillis(spread).toNanos() >= deadline) {
+				return response
+			}
 			try {
-				Thread.sleep(wait.toMillis())
+				Thread.sleep(spread)
 			} catch (error: InterruptedException) {
 				Thread.currentThread().interrupt()
 				throw SQLException("The request to Cloudflare was stopped before it replied.", "HY008", error)
 			}
 		}
-		return send(request, timeout)
+		return send(build(timeLeft(deadline, timeout)), timeout)
+	}
+
+	/**
+	 * Works out the time left before a deadline.
+	 *
+	 * @param deadline when the time limit ends, from [System.nanoTime]
+	 * @param timeout the whole time limit, for the error message
+	 * @return the time left
+	 * @throws SQLTimeoutException when no time is left
+	 */
+	private fun timeLeft(deadline: Long, timeout: Duration): Duration {
+		val left = deadline - System.nanoTime()
+		if (left <= 0) {
+			throw timedOut(timeout, null)
+		}
+		return Duration.ofNanos(left)
 	}
 
 	/**
@@ -507,6 +562,30 @@ class D1Client internal constructor(
 		/** How long to wait before each new try of a read after a Cloudflare server error. */
 		private val RETRY_WAITS = listOf(Duration.ofMillis(250), Duration.ofSeconds(1))
 
+		/** Most extra wait added to each retry, as a share of the wait, as in Cloudflare's own SDK. */
+		private const val RETRY_SPREAD = 0.25
+
+		/** Picks each retry's extra wait. */
+		private val random = Random()
+
+		/**
+		 * Builds the error for a request that ran out of time.
+		 *
+		 * @param timeout the time limit
+		 * @param cause the HTTP client's timeout, if any
+		 * @return the exception to throw
+		 */
+		private fun timedOut(timeout: Duration, cause: Throwable?): SQLTimeoutException {
+			val seconds = BigDecimal(timeout.toMillis()).movePointLeft(3).stripTrailingZeros().toPlainString()
+			val unit = if (seconds == "1") "second" else "seconds"
+			return SQLTimeoutException(
+				"Cloudflare did not reply within $seconds $unit. A statement that changes data may or may "
+					+ "not have been saved.",
+				"HYT00",
+				cause,
+			)
+		}
+
 		/** Databases asked for per page of the list, which is Cloudflare's most. */
 		private const val DATABASES_PER_PAGE = 10000
 
@@ -525,14 +604,7 @@ class D1Client internal constructor(
 			try {
 				return httpClient.send(request, HttpResponse.BodyHandlers.ofString())
 			} catch (error: HttpTimeoutException) {
-				val seconds = BigDecimal(timeout.toMillis()).movePointLeft(3).stripTrailingZeros().toPlainString()
-				val unit = if (seconds == "1") "second" else "seconds"
-				throw SQLTimeoutException(
-					"Cloudflare did not reply within $seconds $unit. A statement that changes data may or may not "
-						+ "have been saved.",
-					"HYT00",
-					error,
-				)
+				throw timedOut(timeout, error)
 			} catch (error: ConnectException) {
 				throw SQLTransientConnectionException(
 					"Could not reach Cloudflare's API. Check your network connection.",

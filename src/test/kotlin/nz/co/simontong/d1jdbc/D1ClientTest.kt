@@ -374,4 +374,22 @@ class D1ClientTest {
 
 		assertEquals("Cloudflare sent a reply the driver could not read (HTTP 200).", error.message)
 	}
+
+	/** Checks that retries after server errors stay within the request's time limit. */
+	@Test
+	fun `keeps retries within the time limit`() {
+		server.respond(500, "", delayMillis = 150)
+		val impatientClient = D1Client(
+			accountId = "acc123",
+			apiToken = "secret-token",
+			baseUri = server.baseUri,
+			requestTimeout = Duration.ofMillis(400),
+		)
+
+		val started = System.nanoTime()
+		assertFailsWith<SQLException> { impatientClient.execute("db456", listOf(D1Query("select 1")), retry = true) }
+
+		// Without one time limit, three tries and two waits would take about 1.7 seconds.
+		assertTrue(Duration.ofNanos(System.nanoTime() - started) < Duration.ofMillis(1000))
+	}
 }

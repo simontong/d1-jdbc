@@ -86,6 +86,30 @@ internal class SignInCredentials(
 	/** The tokens in use, or null until loaded or signed in. */
 	private var tokens: SignInTokens? = null
 
+	/** The accounts the sign-in reaches and when they were listed, so new connections skip the call. */
+	private var accounts: Pair<Instant, List<D1AccountInfo>>? = null
+
+	/** Connections that sign in through the same file share caches. */
+	override val cacheKey: String = "sign-in:${settings.tokenFile.toAbsolutePath().normalize()}:${settings.clientId}"
+
+	/**
+	 * Returns the accounts the sign-in reaches, listing them again after a minute.
+	 *
+	 * @param list asks Cloudflare for the accounts
+	 * @return the accounts
+	 * @throws SQLException when Cloudflare can't be reached
+	 */
+	@Synchronized
+	fun accounts(list: () -> List<D1AccountInfo>): List<D1AccountInfo> {
+		val known = accounts
+		if (known != null && known.first.isAfter(clock.instant().minus(ACCOUNTS_MAX_AGE))) {
+			return known.second
+		}
+		val listed = list()
+		accounts = clock.instant() to listed
+		return listed
+	}
+
 	/** Whether the user granted D1 write permission. */
 	val canWrite: Boolean
 		@Synchronized get() = D1_WRITE_SCOPE in currentTokens().scopes
@@ -116,17 +140,23 @@ internal class SignInCredentials(
 	}
 
 	/**
-	 * Refreshes the tokens after Cloudflare turned the access token down.
+	 * Refreshes the tokens after Cloudflare called the access token invalid, or when it is about to end.
 	 *
 	 * @param rejected the access token Cloudflare turned down
-	 * @return the new access token
+	 * @param code Cloudflare's error code, or null when the reply had none
+	 * @return the new access token, or null when a refresh can't help
 	 * @throws SQLException when refreshing fails
 	 */
 	@Synchronized
-	override fun renew(rejected: String): String {
+	override fun renew(rejected: String, code: Int?): String? {
 		val current = currentTokens()
 		if (current.accessToken != rejected) {
 			return current.accessToken
+		}
+		// Each refresh uses up a refresh token, so refresh only when the token itself is the problem.
+		val ending = !current.expiresAt.isAfter(clock.instant().plus(REFRESH_EARLY))
+		if (code != INVALID_TOKEN_CODE && !ending) {
+			return null
 		}
 		return refresh(current).accessToken
 	}
@@ -175,7 +205,7 @@ internal class SignInCredentials(
 				return@withFileLock saved
 			}
 			val refreshed = try {
-				requestTokens(mapOf("grant_type" to "refresh_token", "refresh_token" to stale.refreshToken))
+				requestTokens(mapOf("grant_type" to "refresh_token", "refresh_token" to stale.refreshToken), stale)
 			} catch (error: SignInEndedException) {
 				Files.deleteIfExists(settings.tokenFile)
 				tokens = null
@@ -205,7 +235,8 @@ internal class SignInCredentials(
 		val state = randomText()
 		val reply = CompletableFuture<Map<String, String>>()
 		val server = try {
-			HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
+			// The redirect names 127.0.0.1, so listen there rather than on whatever loopback Java prefers.
+			HttpServer.create(InetSocketAddress(InetAddress.getByName(LOOPBACK_ADDRESS), 0), 0)
 		} catch (error: IOException) {
 			throw SQLNonTransientConnectionException(
 				"Could not open a local port for Cloudflare's sign-in to reply to. Check that a firewall allows "
@@ -217,16 +248,19 @@ internal class SignInCredentials(
 		server.createContext(CALLBACK_PATH) { exchange -> answerCallback(exchange, state, reply) }
 		server.start()
 		try {
-			val redirectUri = "http://127.0.0.1:${server.address.port}$CALLBACK_PATH"
+			val redirectUri = "http://$LOOPBACK_ADDRESS:${server.address.port}$CALLBACK_PATH"
 			openSignInPage(authorizeUri(redirectUri, challenge, state))
 			val query = waitForReply(reply)
 			val code = codeFrom(query)
-			return requestTokens(mapOf(
-				"grant_type" to "authorization_code",
-				"code" to code,
-				"redirect_uri" to redirectUri,
-				"code_verifier" to verifier,
-			))
+			return requestTokens(
+				mapOf(
+					"grant_type" to "authorization_code",
+					"code" to code,
+					"redirect_uri" to redirectUri,
+					"code_verifier" to verifier,
+				),
+				previous = null,
+			)
 		} catch (error: SignInEndedException) {
 			throw SQLInvalidAuthorizationSpecException("Cloudflare would not finish the sign-in. Connect again to retry.", "28000", error)
 		} finally {
@@ -326,11 +360,12 @@ internal class SignInCredentials(
 	 * Calls Cloudflare's token endpoint and reads the tokens it sends.
 	 *
 	 * @param form form values to send, apart from the client ID
+	 * @param previous the tokens being refreshed, whose refresh token and scopes stay when the reply leaves them out
 	 * @return the tokens
 	 * @throws SignInEndedException when Cloudflare refuses the code or refresh token
 	 * @throws SQLException when Cloudflare can't be reached or sends something else
 	 */
-	private fun requestTokens(form: Map<String, String>): SignInTokens {
+	private fun requestTokens(form: Map<String, String>, previous: SignInTokens?): SignInTokens {
 		val request = HttpRequest.newBuilder(URI.create("${settings.signInBaseUri}/oauth2/token"))
 			.header("Content-Type", "application/x-www-form-urlencoded")
 			// Cloudflare blocks the token endpoint for unnamed programs with error 1010.
@@ -357,19 +392,21 @@ internal class SignInCredentials(
 				"08004",
 			)
 		}
-		return tokensFrom(body)
+		return tokensFrom(body, previous)
 	}
 
 	/**
 	 * Reads the tokens from the token endpoint's reply.
 	 *
 	 * @param body parsed reply
+	 * @param previous the tokens being refreshed, or null after a sign-in
 	 * @return the tokens
 	 * @throws SQLException when a field is missing
 	 */
-	private fun tokensFrom(body: JsonObject): SignInTokens {
+	private fun tokensFrom(body: JsonObject, previous: SignInTokens?): SignInTokens {
 		val accessToken = body["access_token"]?.jsonPrimitive?.content
-		val refreshToken = body["refresh_token"]?.jsonPrimitive?.content
+		// OAuth lets a refresh reply leave out the refresh token, which then stays the same.
+		val refreshToken = body["refresh_token"]?.jsonPrimitive?.content ?: previous?.refreshToken
 		if (accessToken == null || refreshToken == null) {
 			throw SQLNonTransientConnectionException("Cloudflare's sign-in sent a reply with no tokens in it.", "08004")
 		}
@@ -378,7 +415,8 @@ internal class SignInCredentials(
 			accessToken = accessToken,
 			refreshToken = refreshToken,
 			expiresAt = clock.instant().plusSeconds(lifetime),
-			scopes = body["scope"]?.jsonPrimitive?.content.orEmpty().split(" ").filter { it.isNotEmpty() }.toSet(),
+			scopes = body["scope"]?.jsonPrimitive?.content?.split(" ")?.filter { it.isNotEmpty() }?.toSet()
+				?: previous?.scopes.orEmpty(),
 		)
 	}
 
@@ -475,6 +513,15 @@ internal class SignInCredentials(
 
 		/** Permissions asked for: D1, the account list, and a refresh token. */
 		private val SCOPES = listOf("d1.read", D1_WRITE_SCOPE, "account-settings.read", "offline_access")
+
+		/** Address Cloudflare sends the user back to, which RFC 8252 prefers over localhost. */
+		private const val LOOPBACK_ADDRESS = "127.0.0.1"
+
+		/** Cloudflare's error code for an access token that is invalid, revoked or ended. */
+		private const val INVALID_TOKEN_CODE = 9109
+
+		/** How long the account list is reused by new connections. */
+		private val ACCOUNTS_MAX_AGE = Duration.ofMinutes(1)
 
 		/** Path Cloudflare sends the user back to. */
 		private const val CALLBACK_PATH = "/callback"

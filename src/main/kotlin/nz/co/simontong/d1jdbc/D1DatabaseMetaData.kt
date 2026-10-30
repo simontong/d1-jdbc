@@ -490,6 +490,8 @@ class D1DatabaseMetaData(
 
 	/** @return the kinds of table D1 has */
 	override fun getTableTypes(): ResultSet {
+		// JetBrains IDEs ask for table types at the start of every schema refresh, so read D1 again.
+		connection.forgetSchemas()
 		return result(listOf("TABLE_TYPE"), listOf(listOf(JsonPrimitive("TABLE")), listOf(JsonPrimitive("VIEW"))))
 	}
 

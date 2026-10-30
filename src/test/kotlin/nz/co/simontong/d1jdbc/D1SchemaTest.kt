@@ -6,6 +6,7 @@ import java.sql.Types
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -342,6 +343,24 @@ class D1SchemaTest {
 				),
 				read(columns, "COLUMN_NAME", "DATA_TYPE", "TYPE_NAME", "COLUMN_SIZE", "DECIMAL_DIGITS"),
 			)
+		}
+	}
+
+	/** Checks that a table one connection makes shows in another, and a refresh reads changes made elsewhere. */
+	@Test
+	fun `shares schemas between connections and reads them again on refresh`() {
+		server.connect().use { browsing ->
+			assertEquals(3, read(browsing.metaData.getTables(null, null, "%", null), "TABLE_NAME").size)
+
+			server.connect().use { console ->
+				console.createStatement().executeUpdate("create table made_here (x)")
+			}
+			assertTrue(listOf("made_here") in read(browsing.metaData.getTables(null, null, "%", null), "TABLE_NAME"))
+
+			database.setUp("create table made_elsewhere (x)")
+			assertFalse(listOf("made_elsewhere") in read(browsing.metaData.getTables(null, null, "%", null), "TABLE_NAME"))
+			browsing.metaData.tableTypes.close()
+			assertTrue(listOf("made_elsewhere") in read(browsing.metaData.getTables(null, null, "%", null), "TABLE_NAME"))
 		}
 	}
 }

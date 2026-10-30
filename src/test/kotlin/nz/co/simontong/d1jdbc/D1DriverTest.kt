@@ -488,7 +488,7 @@ class D1DriverTest {
 		assertTrue(server.requests.isEmpty())
 	}
 
-	/** Checks that the driver confirms a live connection by running a query. */
+	/** Checks that the driver confirms a live connection by running a query, but not again within seconds. */
 	@Test
 	fun `confirms a live connection by running a query`() {
 		server.respond(200, """
@@ -503,9 +503,15 @@ class D1DriverTest {
 				Json.parseToJsonElement(server.requests.single().body),
 			)
 
-			server.respond(401, """{"success":false,"errors":[{"code":10000,"message":"Authentication error"}]}""")
-			assertFalse(connection.isValid(5))
+			// A second check within seconds of a good reply skips the API call.
+			assertTrue(connection.isValid(5))
+			assertEquals(1, server.requests.size)
 			assertFailsWith<SQLException> { connection.isValid(-1) }
+		}
+
+		server.respond(401, """{"success":false,"errors":[{"code":10000,"message":"Authentication error"}]}""")
+		connect().use { connection ->
+			assertFalse(connection.isValid(5))
 		}
 	}
 

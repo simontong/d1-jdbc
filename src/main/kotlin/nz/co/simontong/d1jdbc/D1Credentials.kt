@@ -1,5 +1,6 @@
 package nz.co.simontong.d1jdbc
 
+import java.security.MessageDigest
 import java.sql.SQLException
 import java.sql.SQLInvalidAuthorizationSpecException
 
@@ -15,14 +16,18 @@ internal interface D1Credentials {
 	 */
 	fun token(): String
 
+	/** Tells apart the people behind two sets of credentials, so they never share caches. */
+	val cacheKey: String
+
 	/**
-	 * Gets a new token after Cloudflare turned one down.
+	 * Gets a new token after Cloudflare turned one down, when a new one can help.
 	 *
 	 * @param rejected the token Cloudflare turned down
+	 * @param code Cloudflare's error code, or null when the reply had none
 	 * @return a new token to try once, or null when there is none
 	 * @throws SQLException when getting a new token fails
 	 */
-	fun renew(rejected: String): String?
+	fun renew(rejected: String, code: Int?): String?
 
 	/**
 	 * Builds the error for a token Cloudflare turned down.
@@ -40,11 +45,16 @@ internal interface D1Credentials {
  * @param apiToken the token
  */
 internal class ApiTokenCredentials(private val apiToken: String) : D1Credentials {
+	/** A hash of the token, so the token itself is never kept as a cache key. */
+	override val cacheKey: String = "token:" + MessageDigest.getInstance("SHA-256")
+		.digest(apiToken.toByteArray())
+		.joinToString("") { "%02x".format(it) }
+
 	/** @return the token */
 	override fun token(): String = apiToken
 
 	/** @return null, as a fixed token can't be renewed */
-	override fun renew(rejected: String): String? = null
+	override fun renew(rejected: String, code: Int?): String? = null
 
 	/**
 	 * Builds the error for a token Cloudflare turned down.
