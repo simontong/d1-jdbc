@@ -116,7 +116,12 @@ class D1Connection(
 	 */
 	internal fun execute(statements: List<D1Query>, timeout: Duration? = null): List<D1Result> {
 		val id = currentDatabaseId()
-		return if (timeout != null) client.execute(id, statements, timeout) else client.execute(id, statements)
+		val reads = statements.all { isReadOnlySql(it.sql) }
+		return if (timeout != null) {
+			client.execute(id, statements, timeout, retry = reads)
+		} else {
+			client.execute(id, statements, retry = reads)
+		}
 	}
 
 	/**

@@ -87,17 +87,23 @@ class D1Client(
 	 * @param databaseId database to run them on
 	 * @param statements statements to run in order
 	 * @param timeout how long to wait for the reply
+	 * @param retry whether to try again after a Cloudflare server error, which is only safe for reads
 	 * @return results in the same order
 	 * @throws SQLException when Cloudflare can't be reached or the SQL fails
 	 */
-	fun execute(databaseId: String, statements: List<D1Query>, timeout: Duration = requestTimeout): List<D1Result> {
+	fun execute(
+		databaseId: String,
+		statements: List<D1Query>,
+		timeout: Duration = requestTimeout,
+		retry: Boolean = false,
+	): List<D1Result> {
 		val request = HttpRequest.newBuilder(URI.create("$baseUri/accounts/$accountId/d1/database/$databaseId/raw"))
 			.header("Authorization", "Bearer $apiToken")
 			.header("Content-Type", "application/json")
 			.timeout(timeout)
 			.POST(HttpRequest.BodyPublishers.ofString(requestJson(statements).toString()))
 			.build()
-		val response = send(request, timeout)
+		val response = sendAndRetry(request, timeout, retry)
 		val body = checkedBody(response)
 		val results = try {
 			readReply(response.statusCode(), body)
@@ -131,7 +137,7 @@ class D1Client(
 				.timeout(timeout)
 				.GET()
 				.build()
-			val response = send(request, timeout)
+			val response = sendAndRetry(request, timeout, retry = true)
 			val body = checkedBody(response)
 			val (found, total) = try {
 				readDatabasePage(response.statusCode(), body)
@@ -211,6 +217,32 @@ class D1Client(
 			throw errorFor(status, body.getValue("errors").jsonArray.first().jsonObject)
 		}
 		return body.getValue("result").jsonArray.map { parseResult(it.jsonObject) }
+	}
+
+	/**
+	 * Sends a request, and when asked, sends it again after short waits if Cloudflare's servers fail.
+	 *
+	 * @param request request to send
+	 * @param timeout time limit set on the request, for the error message
+	 * @param retry whether sending it again is safe
+	 * @return the last reply
+	 * @throws SQLException when the request times out, can't connect, is cut off or is stopped
+	 */
+	private fun sendAndRetry(request: HttpRequest, timeout: Duration, retry: Boolean): HttpResponse<String> {
+		val waits = if (retry) RETRY_WAITS else emptyList()
+		for (wait in waits) {
+			val response = send(request, timeout)
+			if (response.statusCode() < 500) {
+				return response
+			}
+			try {
+				Thread.sleep(wait.toMillis())
+			} catch (error: InterruptedException) {
+				Thread.currentThread().interrupt()
+				throw SQLException("The request to Cloudflare was stopped before it replied.", "HY008", error)
+			}
+		}
+		return send(request, timeout)
 	}
 
 	/**
@@ -395,6 +427,9 @@ class D1Client(
 
 		/** One HTTP client for every connection, as it's safe to share and holds the open sockets. */
 		private val httpClient: HttpClient = HttpClient.newHttpClient()
+
+		/** How long to wait before each new try of a read after a Cloudflare server error. */
+		private val RETRY_WAITS = listOf(Duration.ofMillis(250), Duration.ofSeconds(1))
 
 		/** Databases asked for per page of the list, which is Cloudflare's most. */
 		private const val DATABASES_PER_PAGE = 10000

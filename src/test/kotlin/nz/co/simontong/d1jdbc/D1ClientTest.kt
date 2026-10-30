@@ -268,6 +268,46 @@ class D1ClientTest {
 		assertEquals("08001", error.sqlState)
 	}
 
+	/** Checks that a read is tried again when Cloudflare's servers fail for a moment. */
+	@Test
+	fun `tries a read again after a Cloudflare server error`() {
+		var calls = 0
+		server.respondWith {
+			calls++
+			if (calls < 3) {
+				500 to ""
+			} else {
+				200 to """{"result":[{"results":{"columns":["a"],"rows":[[1]]},"success":true,""" +
+					""""meta":{"changes":0,"last_row_id":0}}],"errors":[],"messages":[],"success":true}"""
+			}
+		}
+
+		val result = client.execute("db456", listOf(D1Query("select 1 as a")), retry = true).single()
+
+		assertEquals(listOf("a"), result.columns)
+		assertEquals(3, server.requests.size)
+	}
+
+	/** Checks that a write isn't sent again after a server error, as D1 may have saved it. */
+	@Test
+	fun `doesn't send a write again after a server error`() {
+		server.respond(500, "")
+
+		assertFailsWith<SQLTransientConnectionException> {
+			client.execute("db456", listOf(D1Query("insert into t values (1)")))
+		}
+		assertEquals(1, server.requests.size)
+	}
+
+	/** Checks that the database list is asked for again when Cloudflare's servers fail for a moment. */
+	@Test
+	fun `tries the database list again after a server error`() {
+		server.databaseListFailures = 2
+
+		assertEquals(listOf(D1DatabaseInfo("db456", "test-db")), client.listDatabases())
+		assertEquals(3, server.databaseListRequests.size)
+	}
+
 	/** Checks that a connection dropped mid-request is reported as a lost connection. */
 	@Test
 	fun `reports a dropped connection as a lost connection`() {

@@ -43,6 +43,9 @@ class StubD1Server : AutoCloseable {
 	/** Whether to close each SQL request's connection without replying, like a dropped network. */
 	var dropConnections = false
 
+	/** How many database list requests to fail with HTTP 500 before answering. */
+	var databaseListFailures = 0
+
 	/** Databases the stub lists per page, standing in for Cloudflare's page size. */
 	var databasesPerPage = 10000
 
@@ -57,6 +60,12 @@ class StubD1Server : AutoCloseable {
 		server.createContext("/") { exchange ->
 			if (exchange.requestMethod == "GET" && exchange.requestURI.path.endsWith("/d1/database")) {
 				databaseListRequests += exchange.requestURI.query.orEmpty()
+				if (databaseListFailures > 0) {
+					databaseListFailures--
+					exchange.sendResponseHeaders(500, -1)
+					exchange.close()
+					return@createContext
+				}
 				val page = Regex("""(?:^|&)page=(\d+)""").find(exchange.requestURI.query.orEmpty())?.groupValues?.get(1)?.toInt() ?: 1
 				val bytes = databaseListJson(page).encodeToByteArray()
 				exchange.responseHeaders.add("Content-Type", "application/json")

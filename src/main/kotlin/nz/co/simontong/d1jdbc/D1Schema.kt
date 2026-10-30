@@ -172,7 +172,7 @@ private fun records(result: D1Result?): List<Map<String, JsonElement>> {
  */
 private fun runSkippingFailures(client: D1Client, databaseId: String, queries: List<D1Query>): List<D1Result?> {
 	try {
-		return client.execute(databaseId, queries)
+		return client.execute(databaseId, queries, retry = true)
 	} catch (error: java.sql.SQLException) {
 		if (error.errorCode != D1Client.SQL_ERROR_CODE) {
 			throw error
@@ -195,10 +195,14 @@ private fun runSkippingFailures(client: D1Client, databaseId: String, queries: L
  * @throws java.sql.SQLException when D1 reports an error
  */
 internal fun loadSchema(client: D1Client, databaseId: String): D1Schema {
-	val (tableList, schemaList) = client.execute(databaseId, listOf(
-		D1Query("pragma table_list"),
-		D1Query("select type, name, tbl_name, sql from sqlite_schema where type in ('table', 'index')"),
-	))
+	val (tableList, schemaList) = client.execute(
+		databaseId,
+		listOf(
+			D1Query("pragma table_list"),
+			D1Query("select type, name, tbl_name, sql from sqlite_schema where type in ('table', 'index')"),
+		),
+		retry = true,
+	)
 	val found = records(tableList).filter { row ->
 		val name = row.getValue("name").text()!!
 		row.getValue("schema").text() == "main" && row.getValue("type").text() in setOf("table", "view") && !isSystemTable(name)
