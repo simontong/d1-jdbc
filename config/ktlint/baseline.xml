@@ -57,8 +57,8 @@
         <error line="79" column="6" source="standard:chain-wrapping" />
         <error line="87" column="6" source="standard:chain-wrapping" />
         <error line="99" column="6" source="standard:chain-wrapping" />
-        <error line="298" column="7" source="standard:chain-wrapping" />
-        <error line="305" column="7" source="standard:chain-wrapping" />
+        <error line="301" column="7" source="standard:chain-wrapping" />
+        <error line="308" column="7" source="standard:chain-wrapping" />
     </file>
     <file name="src/main/kotlin/nz/co/simontong/d1jdbc/D1PreparedStatement.kt">
         <error line="62" column="30" source="standard:class-signature" />
