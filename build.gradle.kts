@@ -39,4 +39,7 @@ tasks.shadowJar {
 	// Shadow skips duplicate service files unless told to merge them.
 	duplicatesStrategy = DuplicatesStrategy.INCLUDE
 	mergeServiceFiles()
+	// Keeps the bundled JSON library from clashing with another copy in the same app. Shadow's docs
+	// advise against moving the Kotlin standard library, so it stays put.
+	relocate("kotlinx.serialization", "nz.co.simontong.d1jdbc.shaded.kotlinx.serialization")
 }
