@@ -1,94 +1,115 @@
 # D1 JDBC driver
 
-A JDBC driver for Cloudflare D1, so you can browse, query and edit a remote D1 database from PhpStorm, DataGrip or any other JDBC tool. It talks to D1 through Cloudflare's REST API, which is the only way to reach a live D1 database from outside Cloudflare (https://developers.cloudflare.com/d1/best-practices/query-d1/).
+A JDBC driver for Cloudflare D1. Use it to browse, query and edit D1 databases in DataGrip, PhpStorm and other JetBrains IDEs, or in any JDBC tool.
 
-It's written in Kotlin and ships as one jar with everything it needs inside it.
+The driver sends SQL to Cloudflare's REST API. Outside of Cloudflare, this API is the only way to reach a live D1 database (https://developers.cloudflare.com/d1/best-practices/query-d1/).
 
-## What works
+## Features
 
-- Running queries and changes, including several statements at once and batches.
-- Prepared statements with `?` and `?1`-style placeholders.
-- Every D1 database in the account on one connection, each shown by name.
-- Browsing tables, views, columns, primary keys, indexes and foreign keys.
-- Editing rows in the result grid for queries that read from one table.
-- A read-only mode that blocks anything that would change data.
+- One connection shows every D1 database in the account, each by its name.
+- Run queries, changes, batches, and SQL that holds more than one statement.
+- Prepared statements with `?` and `?1` placeholders.
+- Browse tables, views, columns, primary keys, indexes and foreign keys.
+- Edit rows in the result grid when the query reads from one table.
+- Read-only mode blocks statements that change data.
 
-## Set it up in PhpStorm or DataGrip
+## What you need
 
-You'll need a Cloudflare API token and your account ID.
+- A Cloudflare API token with D1 permission.
+- Your Cloudflare account ID.
 
-The quickest way is the Cloudflare D1 Driver plugin, which adds D1 to the list of data sources and downloads the driver for you. Install it from the plugin jar on the releases page with Settings | Plugins | ⚙ | Install Plugin from Disk, then skip step 2 below and pick Cloudflare D1 when you add a data source.
+### Make the API token
 
-### 1. Make an API token
-
-Open this link while logged in to Cloudflare. It fills in a token with D1 Edit permission, and you just pick your account and create it.
+Open this link while you are logged in to Cloudflare. The link fills in a token with D1 Edit permission. Select your account, then create the token.
 
 https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=%5B%7B%22key%22%3A%22d1%22%2C%22type%22%3A%22edit%22%7D%5D&accountId=*&zoneId=all&name=D1%20JDBC
 
-If you only want to read, change the permission to D1 Read before you create it. The link format comes from Cloudflare's token template docs (https://developers.cloudflare.com/fundamentals/api/how-to/account-owned-token-template/).
+For read-only use, change the permission to D1 Read before you create the token.
 
-Cloudflare tokens can't be limited to one database, so the token can reach every D1 database in the account.
+The token can reach every D1 database in the account. Cloudflare tokens cannot be limited to one database.
 
-To find your account ID, press Ctrl+K (or Cmd+K) in the Cloudflare dashboard and choose Copy account ID (https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/). If you want to start on one database, its ID is in the `uuid` column of `wrangler d1 list`.
+### Find your account ID
 
-### 2. Add the driver
+In the Cloudflare dashboard, press Ctrl+K (Cmd+K on a Mac), then select Copy account ID (https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/).
+
+## Set up the IDE
+
+### With the plugin
+
+1. Download the plugin jar from the releases page.
+2. In the IDE, open Settings | Plugins | ⚙ | Install Plugin from Disk, and select the jar.
+3. Add a data source and select Cloudflare D1. The IDE downloads the driver.
+4. Do the steps in "Connect to D1".
+
+### Without the plugin
 
 1. Download `d1-jdbc-<version>-all.jar` from the releases page.
-2. Open Data Sources and Drivers (File | Data Sources, or Ctrl+Alt+Shift+S), go to the Drivers tab, and add a new driver called D1 (https://www.jetbrains.com/help/datagrip/other-databases.html).
-3. In Driver Files, click Add, choose Custom JARs, and pick the jar (https://www.jetbrains.com/help/datagrip/jdbc-drivers.html).
-4. Set Class to `nz.co.simontong.d1jdbc.D1Driver`.
-5. On the Options tab, set Dialect to SQLite.
+2. Open Data Sources and Drivers (Ctrl+Alt+Shift+S), then go to the Drivers tab.
+3. Add a driver with the name D1.
+4. In Driver Files, add the jar as a custom JAR.
+5. Set Class to `nz.co.simontong.d1jdbc.D1Driver`.
+6. On the Options tab, set Dialect to SQLite.
+7. Do the steps in "Connect to D1".
 
-### 3. Add the database
+The JetBrains help has more about custom drivers (https://www.jetbrains.com/help/datagrip/jdbc-drivers.html).
+
+### Connect to D1
 
 1. Add a data source that uses the D1 driver.
-2. Set the URL to `jdbc:d1://<account id>` to see every D1 database the token can reach, or `jdbc:d1://<account id>/<database id>` to start on one. Either way, every database shows in the tree by name, and the console's database switcher picks which one your SQL runs on.
-3. Leave the user empty and put your API token in the password field.
-4. Turn on "Introspect using JDBC metadata". JetBrains' docs place it in the Expert options on either the driver's or the data source's Advanced tab (https://www.jetbrains.com/help/datagrip/data-sources-and-drivers-dialog.html and https://www.jetbrains.com/help/datagrip/cannot-find-a-database-object-in-the-database-tree-view.html).
+2. Set the URL to `jdbc:d1://<account id>`.
+3. Leave the user empty. Put the API token in the password field.
+4. If the Advanced tab shows "Introspect using JDBC metadata", turn it on.
 5. Click Test Connection.
 
-The IDE turns "Introspect using JDBC metadata" off after it updates and shows a notice, so you may need to turn it back on (https://youtrack.jetbrains.com/issue/DBE-14258).
+The tree shows each database by name. To pick the database that your SQL runs on, use the database switcher in the query console.
+
+To start on one database, add its ID to the URL: `jdbc:d1://<account id>/<database id>`. The database ID is in the `uuid` column of `wrangler d1 list`.
 
 ## Settings
 
-You can add these to the end of the URL, like `jdbc:d1://<account id>/<database id>?readOnly=true`, or set them on the driver's Advanced tab.
+Add settings to the end of the URL, for example `jdbc:d1://<account id>?readOnly=true`. You can also set them on the Advanced tab of the data source.
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `password` | none | Your Cloudflare API token. Required. |
+| `password` | none | Your Cloudflare API token. Put it in the password field. The driver does not accept it in the URL, because IDEs save URLs as plain text. |
 | `readOnly` | `false` | Blocks statements that change data. |
-| `schemaCacheSeconds` | `30` | How long to reuse the table list before asking D1 again. `0` asks every time. |
+| `schemaCacheSeconds` | `30` | How long the driver keeps the table list before it reads it again. `0` reads it every time. |
 
-Read-only mode is a check inside the driver. For a real guarantee, use a token with D1 Read permission too, as D1 rejects `PRAGMA query_only` (see `docs/research/live-tests.md`).
+Read-only mode is a check in the driver. For a guarantee from Cloudflare, also use a token with D1 Read permission.
 
-## Known limits
+## Limits
 
-- D1 has no transactions you can control. Every statement is saved as soon as it runs, so rollback isn't possible. A batch, or SQL holding several statements, is saved in full or not at all. These come from live tests recorded in `docs/research/live-tests.md`.
-- Whole numbers bigger than 9,007,199,254,740,992 can lose their last digits when read back, because Cloudflare's JSON reply turns them into decimals. They're stored exactly, so `cast(x as text)` reads every digit.
-- Cloudflare allows 1,200 API calls per 5 minutes for each token, and blocks every call for 5 minutes after that (https://developers.cloudflare.com/fundamentals/api/reference/limits/). The driver loads the whole schema in two calls and keeps it for 30 seconds to stay well under this.
-- Each statement can have at most 100 bound values (https://developers.cloudflare.com/d1/platform/limits/). SQL holding several statements can't have `?` values at all, which D1 rejects (see `docs/research/live-tests.md`). Batches of separate statements are fine.
-- Only queries that read from one table, with no joins, grouping or unions, can be edited in the grid. The driver works out the table from the SQL, as D1 doesn't say where result columns come from.
-- After an insert, the only generated key the driver can return is the new row ID.
-- Primary and foreign keys only have names when CREATE TABLE gives them one, like `constraint fk_parent foreign key (pid) references parent(id)`. Tools show their own placeholder name for the rest.
-- D1 doesn't send column types with results, so the type of a column in a result comes from its values, or from the table when the query reads from one table.
+- D1 has no transactions that you can control. Each statement is saved when it runs, so rollback is not possible. A batch, or SQL that holds more than one statement, is saved completely or not at all.
+- If Cloudflare does not reply, a statement that changes data can be saved or not saved. The error message tells you this.
+- Whole numbers larger than 9,007,199,254,740,992 can lose their last digits when you read them, because Cloudflare sends them as JSON decimals. The database stores them exactly. To read every digit, use `cast(x as text)`.
+- Cloudflare allows 1,200 API calls in 5 minutes for each token. After that, it blocks all calls for 5 minutes (https://developers.cloudflare.com/fundamentals/api/reference/limits/). The driver reads the tables of one database in 2 calls, and keeps the result for 30 seconds.
+- A statement can have a maximum of 100 bound values (https://developers.cloudflare.com/d1/platform/limits/). SQL that holds more than one statement cannot have bound values.
+- Grid editing works only for a query that reads from one table, with no joins, grouping or unions.
+- After an insert, the only generated key that the driver can return is the row ID.
+- Primary keys and foreign keys have names only when the CREATE TABLE statement gives them names.
 
-## Build it yourself
+The behaviour that the Cloudflare docs do not describe comes from live tests. The results are in `docs/research/live-tests.md`.
 
-You need Java 17 or newer.
+## Build
+
+You need Java 17 or later.
 
 ```sh
 ./gradlew build
 ```
 
-The driver jar is `build/libs/d1-jdbc-<version>-all.jar`, and the IDE plugin is `ide-plugin/build/libs/d1-jdbc-ide-plugin-<version>.jar`.
+The build makes two files:
 
-The plugin downloads the driver from the GitHub release with the same version. To try it before a release, point it at a local driver jar instead.
+- The driver: `build/libs/d1-jdbc-<version>-all.jar`
+- The plugin: `ide-plugin/build/libs/d1-jdbc-ide-plugin-<version>.jar`
+
+The plugin downloads the driver from the GitHub release with the same version. To test the plugin with a local driver before a release, build it with this command:
 
 ```sh
 ./gradlew build :ide-plugin:pluginJar -PdriverJarUrl=file://$PWD/build/libs/d1-jdbc-0.0.0-all.jar
 ```
 
-The tests run against a stub server and an in-memory SQLite database. To run the live tests too, copy `.env.example` to `.env` and fill in a throwaway database's details. The live tests create and drop their own tables.
+The tests use a stub server and an in-memory SQLite database. To also run the live tests, copy `.env.example` to `.env`, then add the details of a test database. The live tests make and delete their own tables.
 
 ## Licence
 
