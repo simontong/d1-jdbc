@@ -325,6 +325,7 @@ internal class SchemaCache(
 	 * @return the schema
 	 * @throws java.sql.SQLException when D1 reports an error
 	 */
+	@Synchronized
 	fun get(): D1Schema {
 		val cached = schema
 		if (cached != null && clock() - loadedAt < maxAge.toNanos()) {
@@ -337,6 +338,7 @@ internal class SchemaCache(
 	}
 
 	/** Forgets the schema, so the next call loads it again. */
+	@Synchronized
 	fun clear() {
 		schema = null
 	}

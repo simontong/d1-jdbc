@@ -20,6 +20,7 @@ import java.sql.Statement
 import java.sql.Struct
 import java.time.Duration
 import java.util.Properties
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executor
 
 /**
@@ -32,21 +33,25 @@ class D1Connection(
 	internal val client: D1Client,
 	private val settings: D1Settings,
 ) : Connection {
+	@Volatile
 	private var closed = false
 	private var warnings: SQLWarning? = null
 	private var readOnly = settings.readOnly
 
 	/** Whether a statement that changes data has run since the last commit or rollback. */
+	@Volatile
 	internal var changedSinceCommit = false
 
 	/** ID of the database statements run on, or null until one is chosen. */
+	@Volatile
 	private var databaseId: String? = settings.databaseId
 
 	/** The account's databases sorted by name, loaded the first time they're needed. */
+	@Volatile
 	private var databaseList: List<D1DatabaseInfo>? = null
 
 	/** Each database's schema, kept for a short time so tools browsing it make few API calls. */
-	private val schemaCaches = mutableMapOf<String, SchemaCache>()
+	private val schemaCaches = ConcurrentHashMap<String, SchemaCache>()
 
 	/**
 	 * Lists the account's databases, loading the list the first time or when asked to.
@@ -119,7 +124,7 @@ class D1Connection(
 	 * @return the cache
 	 */
 	private fun schemaCacheFor(id: String): SchemaCache {
-		return schemaCaches.getOrPut(id) { SchemaCache(client, id, Duration.ofSeconds(settings.schemaCacheSeconds)) }
+		return schemaCaches.computeIfAbsent(id) { SchemaCache(client, id, Duration.ofSeconds(settings.schemaCacheSeconds)) }
 	}
 
 	/** The chosen database's schema cache. */

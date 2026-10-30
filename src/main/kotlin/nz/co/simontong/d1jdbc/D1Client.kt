@@ -227,7 +227,12 @@ class D1Client(
 		} catch (error: HttpTimeoutException) {
 			val seconds = BigDecimal(timeout.toMillis()).movePointLeft(3).stripTrailingZeros().toPlainString()
 			val unit = if (seconds == "1") "second" else "seconds"
-			throw SQLTimeoutException("Cloudflare did not reply within $seconds $unit.", error)
+			throw SQLTimeoutException(
+				"Cloudflare did not reply within $seconds $unit. A statement that changes data may or may not "
+					+ "have been saved.",
+				"HYT00",
+				error,
+			)
 		} catch (error: ConnectException) {
 			throw SQLTransientConnectionException(
 				"Could not reach Cloudflare's API. Check your network connection.",

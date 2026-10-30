@@ -227,7 +227,10 @@ class D1DriverTest {
 			}
 		}
 
-		assertEquals("Cloudflare did not reply within 1 second.", error.message)
+		assertEquals(
+			"Cloudflare did not reply within 1 second. A statement that changes data may or may not have been saved.",
+			error.message,
+		)
 	}
 
 	/** Checks that the driver stays in auto-commit and warns when asked to turn it off. */
@@ -277,6 +280,20 @@ class D1DriverTest {
 
 			connection.commit()
 			connection.rollback()
+		}
+	}
+
+	/** Checks that a write whose reply never came counts as possibly saved, so rollback doesn't claim success. */
+	@Test
+	fun `treats a write that timed out as possibly saved`() {
+		server.respond(200, "{}", delayMillis = 3_000)
+
+		connect().use { connection ->
+			val statement = connection.createStatement()
+			statement.queryTimeout = 1
+			assertFailsWith<SQLTimeoutException> { statement.executeUpdate("update t set a = 1") }
+
+			assertFailsWith<SQLException> { connection.rollback() }
 		}
 	}
 

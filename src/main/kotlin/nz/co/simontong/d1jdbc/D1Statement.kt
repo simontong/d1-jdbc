@@ -80,24 +80,30 @@ open class D1Statement(
 		if (connection.isReadOnly && writes) {
 			throw SQLException("This connection is read-only, so statements that change data are blocked.", "25006")
 		}
-		if (writes) {
-			// The statement may change the schema, so load it again next time.
-			connection.schemaCache.clear()
-		}
+		val schemaCache = connection.schemaCache
 		val timeout = if (queryTimeoutSeconds > 0) Duration.ofSeconds(queryTimeoutSeconds.toLong()) else null
-		val sent = try {
-			connection.execute(queries, timeout)
+		try {
+			val sent = connection.execute(queries, timeout)
+			if (writes) {
+				connection.changedSinceCommit = true
+			}
+			return sent
 		} catch (error: SQLException) {
 			// SQLite names a missing table or column, which means the saved schema is out of date.
 			if (STALE_SCHEMA_ERRORS.any { error.message.orEmpty().contains(it) }) {
-				connection.schemaCache.clear()
+				schemaCache.clear()
+			}
+			// With no reply, D1 may still have saved the change.
+			if (writes && error.sqlState in NO_REPLY_STATES) {
+				connection.changedSinceCommit = true
 			}
 			throw error
+		} finally {
+			// A write may change the schema. Clearing after it too drops any copy read while it ran.
+			if (writes) {
+				schemaCache.clear()
+			}
 		}
-		if (writes) {
-			connection.changedSinceCommit = true
-		}
-		return sent
 	}
 
 	/**
@@ -553,6 +559,9 @@ open class D1Statement(
 	override fun isWrapperFor(iface: Class<*>): Boolean = iface.isInstance(this)
 }
 
+
+/** SQL states for a request that got no reply, so a write in it may or may not have been saved. */
+private val NO_REPLY_STATES = setOf("HYT00", "08S01", "HY008")
 
 /** SQLite error text that means a table or column the schema lists no longer exists. */
 private val STALE_SCHEMA_ERRORS = listOf("no such table", "no such column")

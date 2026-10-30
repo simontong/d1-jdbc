@@ -243,7 +243,11 @@ class D1ClientTest {
 			impatientClient.execute("db456", listOf(D1Query("select 1")))
 		}
 
-		assertEquals("Cloudflare did not reply within 0.2 seconds.", error.message)
+		assertEquals(
+			"Cloudflare did not reply within 0.2 seconds. A statement that changes data may or may not have been saved.",
+			error.message,
+		)
+		assertEquals("HYT00", error.sqlState)
 	}
 
 	/** Checks that the client reports an unreachable API as a temporary connection error. */
