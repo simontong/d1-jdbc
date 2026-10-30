@@ -103,11 +103,7 @@ The build makes two files:
 - The driver: `build/libs/d1-jdbc-<version>-all.jar`
 - The plugin: `ide-plugin/build/libs/d1-jdbc-ide-plugin-<version>.jar`
 
-The plugin downloads the driver from the GitHub release with the same version. To test the plugin with a local driver before a release, build it with this command:
-
-```sh
-./gradlew build :ide-plugin:pluginJar -PdriverJarUrl=file://$PWD/build/libs/d1-jdbc-0.0.0-all.jar
-```
+A release build, made with `-PreleaseVersion`, sets the plugin to download the driver from the GitHub release with the same version. Any other build sets the plugin to use the driver jar in `build/libs`, so you can test the plugin before a release.
 
 The tests use a stub server and an in-memory SQLite database. To also run the live tests, copy `.env.example` to `.env`, then add the details of a test database. The live tests make and delete their own tables.
 
