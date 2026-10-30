@@ -56,7 +56,7 @@ On Cloudflare's page, click **Edit Permissions** and remove **D1 Write**. The co
 
 ### Sign in again or sign out
 
-The driver keeps your sign-in in a file that only you can read. It gets a new token each hour, so you sign in once on each computer.
+The driver keeps your sign-in in a file in your config folder. On Linux and macOS, only you can read the file. The driver gets a new token each hour, so you sign in once on each computer.
 
 - To sign in again, delete the file, then connect. The file is `d1-jdbc/cloudflare-sign-in.json` in your config folder: `%APPDATA%` on Windows, otherwise `$XDG_CONFIG_HOME` or `~/.config`.
 - To remove the app from your Cloudflare account, open **My Profile | Access Management | Connected Applications** in the Cloudflare dashboard.
@@ -138,7 +138,7 @@ Read-only mode is a check in the driver. For a guarantee from Cloudflare, also u
 - **No transactions.** Each statement is saved when it runs, so you cannot roll back. A batch, or SQL that holds more than one statement, is saved completely or not at all.
 - **No reply from Cloudflare.** If Cloudflare does not reply, a change can be saved or not saved. The error message tells you this.
 - **Large numbers.** Whole numbers larger than 9,007,199,254,740,992 can lose their last digits when you read them, because Cloudflare sends them as JSON decimals. The database stores them exactly. To read every digit, use `cast(x as text)`.
-- **Rate limit.** Cloudflare allows 1,200 API calls in 5 minutes for each Cloudflare user, including calls from the dashboard and your other tokens. After that, Cloudflare blocks all calls for 5 minutes ([Cloudflare docs](https://developers.cloudflare.com/fundamentals/api/reference/limits/)). The driver keeps the table list for 30 seconds to make fewer calls.
+- **Rate limit.** Cloudflare allows 1,200 API calls in 5 minutes for each Cloudflare user, including calls from the dashboard and your other tokens. After that, Cloudflare blocks all calls for 5 minutes ([Cloudflare docs](https://developers.cloudflare.com/fundamentals/api/reference/limits/)). The driver keeps the table list for 30 seconds, and shares it between connections, to make fewer calls. A refresh in the IDE always reads it again.
 - **Bound values.** A statement can have a maximum of 100 bound values ([Cloudflare docs](https://developers.cloudflare.com/d1/platform/limits/)). SQL that holds more than one statement cannot have bound values.
 - **Grid editing** works only for a query that reads from one table, with no joins, grouping or unions.
 - **Generated keys.** After an insert, the only generated key that the driver can return is the row ID.

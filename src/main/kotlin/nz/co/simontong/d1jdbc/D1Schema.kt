@@ -195,7 +195,8 @@ private fun runSkippingFailures(
 }
 
 /**
- * Loads the whole schema in two requests, as Cloudflare limits how many API calls an account makes.
+ * Loads the whole schema in as few requests as possible: one for the table list, then one for
+ * each 200 table and index lookups, as Cloudflare limits how many API calls a user makes.
  *
  * @param client client for the account
  * @param databaseId database to read
@@ -324,7 +325,7 @@ private fun readForeignKeys(result: D1Result?, named: List<NamedForeignKey>): Li
 }
 
 /**
- * Keeps the schema for a short time, so a tool reading it table by table makes only two requests.
+ * Keeps the schema for a short time, so a tool reading it table by table loads it only once.
  *
  * @param client client for the account
  * @param databaseId database the schema belongs to

@@ -366,7 +366,11 @@ open class D1Statement(
 			send(queries)
 		} catch (error: SQLException) {
 			throw BatchUpdateException(
-				"The batch failed and D1 saved none of it. ${error.message}",
+				if (error.sqlState in NO_REPLY_STATES) {
+					"The batch failed with no reply from D1, so it may or may not have been saved. ${error.message}"
+				} else {
+					"The batch failed and D1 saved none of it. ${error.message}"
+				},
 				error.sqlState,
 				error.errorCode,
 				IntArray(0),
@@ -429,7 +433,7 @@ open class D1Statement(
 		checkOpen()
 	}
 
-	/** @return the query time limit in seconds, where 0 means no limit */
+	/** @return the query time limit in seconds, where 0 means the driver's own 60-second limit */
 	override fun getQueryTimeout(): Int {
 		checkOpen()
 		return queryTimeoutSeconds
@@ -438,7 +442,7 @@ open class D1Statement(
 	/**
 	 * Sets the query time limit.
 	 *
-	 * @param seconds time limit in seconds, where 0 means no limit
+	 * @param seconds time limit in seconds, where 0 means the driver's own 60-second limit
 	 * @throws SQLException when the limit is negative
 	 */
 	override fun setQueryTimeout(seconds: Int) {
