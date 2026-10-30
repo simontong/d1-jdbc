@@ -64,6 +64,23 @@ The tree shows each database by name. To pick the database that your SQL runs on
 
 To start on one database, add its ID to the URL: `jdbc:d1://<account id>/<database id>`. The database ID is in the `uuid` column of `wrangler d1 list`.
 
+### Sign in with Cloudflare
+
+You can sign in with Cloudflare in the browser instead of making an API token.
+
+1. Set the connection type to URL only, and set the URL to `jdbc:d1://?auth=browser`.
+2. Leave the user and password empty.
+3. Click Test Connection. Your browser opens Cloudflare's sign-in page.
+4. Select the accounts to use, then click Authorize.
+
+The tree shows the databases of every account that you select. If you select more than one account, each database name starts with its account name. To use one account only, add its ID to the URL: `jdbc:d1://<account id>?auth=browser`.
+
+If you remove D1 Write on Cloudflare's page, the connection is read-only.
+
+The driver keeps the sign-in in a file that only you can read, and gets a new token each hour. To sign in again, delete the file. Cloudflare lists the apps you signed in to under My Profile, then Access Management, then Connected Applications.
+
+At the moment, only members of the Cloudflare account that owns the sign-in app can sign in.
+
 ## Settings
 
 Add settings to the end of the URL, for example `jdbc:d1://<account id>?readOnly=true`. You can also set them on the Advanced tab of the data source.
@@ -73,8 +90,12 @@ Add settings to the end of the URL, for example `jdbc:d1://<account id>?readOnly
 | `password`           | none    | Your Cloudflare API token. Put it in the password field. The driver does not accept it in the URL, because IDEs save URLs as plain text. |
 | `readOnly`           | `false` | Blocks statements that change data.                                                                                                      |
 | `schemaCacheSeconds` | `30`    | How long the driver keeps the table list before it reads it again. `0` reads it every time.                                              |
+| `auth`               | `token` | `token` uses the API token in the password field. `browser` signs in with Cloudflare in the browser.                                     |
+| `tokenFile`          | see below | The file that keeps the Cloudflare sign-in when `auth` is `browser`.                                                                   |
 
 Read-only mode is a check in the driver. For a guarantee from Cloudflare, also use a token with D1 Read permission.
+
+The default `tokenFile` is `d1-jdbc/cloudflare-sign-in.json` in your config folder: `%APPDATA%` on Windows, otherwise `$XDG_CONFIG_HOME` or `~/.config`.
 
 ## Limits
 

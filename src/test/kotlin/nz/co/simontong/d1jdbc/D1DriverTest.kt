@@ -147,7 +147,11 @@ class D1DriverTest {
 			DriverManager.getConnection("jdbc:d1://acc123/db456", Properties())
 		}
 
-		assertEquals("No Cloudflare API token was given. Enter it as the connection password.", error.message)
+		assertEquals(
+			"No Cloudflare API token was given. Enter it as the connection password, or add ?auth=browser to the URL to "
+				+ "sign in with Cloudflare.",
+			error.message,
+		)
 	}
 
 	/** Checks that the driver lists the settings an IDE should ask for. */
@@ -155,7 +159,7 @@ class D1DriverTest {
 	fun `lists the settings an IDE should ask for`() {
 		val settings = D1Driver().getPropertyInfo("jdbc:d1://acc123/db456", Properties())
 
-		assertEquals(listOf("password", "readOnly", "schemaCacheSeconds"), settings.map { it.name })
+		assertEquals(listOf("password", "readOnly", "schemaCacheSeconds", "auth", "tokenFile"), settings.map { it.name })
 		assertTrue(settings.first().required)
 	}
 

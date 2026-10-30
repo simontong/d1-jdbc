@@ -10,7 +10,6 @@ import java.net.http.HttpResponse
 import java.net.http.HttpTimeoutException
 import java.sql.SQLException
 import java.sql.SQLIntegrityConstraintViolationException
-import java.sql.SQLInvalidAuthorizationSpecException
 import java.sql.SQLNonTransientConnectionException
 import java.sql.SQLSyntaxErrorException
 import java.sql.SQLTimeoutException
@@ -61,8 +60,21 @@ data class D1Result(
  *
  * @property id database ID
  * @property name database name
+ * @property accountId ID of the account it belongs to, or empty when not yet known
  */
 data class D1DatabaseInfo(
+	val id: String,
+	val name: String,
+	val accountId: String = "",
+)
+
+/**
+ * One Cloudflare account a token can reach.
+ *
+ * @property id account ID
+ * @property name account name
+ */
+data class D1AccountInfo(
 	val id: String,
 	val name: String,
 )
@@ -71,16 +83,33 @@ data class D1DatabaseInfo(
  * Sends SQL to the D1 databases of one account through the Cloudflare REST API.
  *
  * @param accountId Cloudflare account ID
- * @param apiToken API token with D1 access
+ * @param credentials supplies the token for each call
  * @param baseUri Cloudflare API base address
  * @param requestTimeout how long to wait for each reply
+ * @param accountName account name, shown when a connection reaches several accounts
  */
-class D1Client(
-	private val accountId: String,
-	private val apiToken: String,
+class D1Client internal constructor(
+	internal val accountId: String,
+	private val credentials: D1Credentials,
 	private val baseUri: URI = URI.create("https://api.cloudflare.com/client/v4"),
 	private val requestTimeout: Duration = Duration.ofSeconds(60),
+	internal val accountName: String = accountId,
 ) {
+	/**
+	 * Makes a client that sends a fixed API token.
+	 *
+	 * @param accountId Cloudflare account ID
+	 * @param apiToken API token with D1 access
+	 * @param baseUri Cloudflare API base address
+	 * @param requestTimeout how long to wait for each reply
+	 */
+	constructor(
+		accountId: String,
+		apiToken: String,
+		baseUri: URI = URI.create("https://api.cloudflare.com/client/v4"),
+		requestTimeout: Duration = Duration.ofSeconds(60),
+	) : this(accountId, ApiTokenCredentials(apiToken), baseUri, requestTimeout)
+
 
 	/**
 	 * Runs statements on a D1 database and returns one result per statement.
@@ -98,16 +127,19 @@ class D1Client(
 		timeout: Duration = requestTimeout,
 		retry: Boolean = false,
 	): List<D1Result> {
-		val request = HttpRequest.newBuilder(URI.create("$baseUri/accounts/$accountId/d1/database/$databaseId/raw"))
-			.header("Authorization", "Bearer $apiToken")
-			.header("Content-Type", "application/json")
-			.timeout(timeout)
-			.POST(HttpRequest.BodyPublishers.ofString(requestJson(statements).toString()))
-			.build()
-		val response = sendAndRetry(request, timeout, retry)
-		val body = checkedBody(response)
+		val uri = URI.create("$baseUri/accounts/$accountId/d1/database/$databaseId/raw")
+		val body = requestJson(statements).toString()
+		val response = sendWithToken(timeout, retry) { token ->
+			HttpRequest.newBuilder(uri)
+				.header("Authorization", "Bearer $token")
+				.header("Content-Type", "application/json")
+				.timeout(timeout)
+				.POST(HttpRequest.BodyPublishers.ofString(body))
+				.build()
+		}
+		val reply = checkedBody(response)
 		val results = try {
-			readReply(response.statusCode(), body)
+			readReply(response.statusCode(), reply)
 		} catch (error: NoSuchElementException) {
 			throw unreadableReply(response, error)
 		} catch (error: IllegalArgumentException) {
@@ -133,19 +165,13 @@ class D1Client(
 		var page = 1
 		while (true) {
 			val uri = URI.create("$baseUri/accounts/$accountId/d1/database?page=$page&per_page=$DATABASES_PER_PAGE")
-			val request = HttpRequest.newBuilder(uri)
-				.header("Authorization", "Bearer $apiToken")
-				.timeout(timeout)
-				.GET()
-				.build()
-			val response = sendAndRetry(request, timeout, retry = true)
-			val body = checkedBody(response)
+			val body = getPage(uri, timeout)
 			val (found, total) = try {
-				readDatabasePage(response.statusCode(), body)
+				readDatabasePage(body)
 			} catch (error: NoSuchElementException) {
-				throw unreadableReply(response, error)
+				throw unreadableList("database", error)
 			} catch (error: IllegalArgumentException) {
-				throw unreadableReply(response, error)
+				throw unreadableList("database", error)
 			}
 			databases += found
 			if (found.isEmpty() || databases.size >= total) {
@@ -156,27 +182,103 @@ class D1Client(
 	}
 
 	/**
-	 * Reads one page of the database list, or throws the error it carries.
+	 * Reads one page of the database list.
 	 *
-	 * @param status HTTP status code of the reply
-	 * @param body parsed reply body
+	 * @param body parsed reply body that reports success
 	 * @return the page's databases and the account's total count
-	 * @throws SQLException when the reply reports a failure
 	 * @throws NoSuchElementException when a field is missing
 	 * @throws IllegalArgumentException when a field has the wrong type
 	 */
-	private fun readDatabasePage(status: Int, body: JsonObject): Pair<List<D1DatabaseInfo>, Int> {
-		if (!body.getValue("success").jsonPrimitive.boolean) {
-			throw errorFor(status, body.getValue("errors").jsonArray.first().jsonObject)
-		}
+	private fun readDatabasePage(body: JsonObject): Pair<List<D1DatabaseInfo>, Int> {
 		// The API reference marks uuid and name optional, so skip a database with no ID.
 		val found = body.getValue("result").jsonArray.mapNotNull { item ->
 			val database = item.jsonObject
 			val id = database["uuid"]?.jsonPrimitive?.content ?: return@mapNotNull null
-			D1DatabaseInfo(id, database["name"]?.jsonPrimitive?.content ?: id)
+			D1DatabaseInfo(id, database["name"]?.jsonPrimitive?.content ?: id, accountId)
 		}
 		val total = body["result_info"]?.jsonObject?.get("total_count")?.jsonPrimitive?.int ?: found.size
 		return found to total
+	}
+
+	/**
+	 * Lists the accounts the token can reach, reading every page of Cloudflare's list.
+	 *
+	 * @param timeout how long to wait for each page
+	 * @return the accounts in the order Cloudflare lists them
+	 * @throws SQLException when Cloudflare can't be reached or rejects the token
+	 */
+	fun listAccounts(timeout: Duration = requestTimeout): List<D1AccountInfo> {
+		val accounts = mutableListOf<D1AccountInfo>()
+		var page = 1
+		while (true) {
+			val body = getPage(URI.create("$baseUri/accounts?page=$page&per_page=$ACCOUNTS_PER_PAGE"), timeout)
+			val found = try {
+				body.getValue("result").jsonArray.mapNotNull { item ->
+					val account = item.jsonObject
+					val id = account["id"]?.jsonPrimitive?.content ?: return@mapNotNull null
+					D1AccountInfo(id, account["name"]?.jsonPrimitive?.content ?: id)
+				}
+			} catch (error: IllegalArgumentException) {
+				throw unreadableList("account", error)
+			} catch (error: NoSuchElementException) {
+				throw unreadableList("account", error)
+			}
+			accounts += found
+			if (found.size < ACCOUNTS_PER_PAGE) {
+				return accounts
+			}
+			page++
+		}
+	}
+
+	/**
+	 * Reads one page of a Cloudflare list, trying again after a server error as reading is safe.
+	 *
+	 * @param uri page address
+	 * @param timeout how long to wait
+	 * @return the parsed reply, which reports success
+	 * @throws SQLException when Cloudflare can't be reached or the reply reports a failure
+	 */
+	private fun getPage(uri: URI, timeout: Duration): JsonObject {
+		val response = sendWithToken(timeout, retry = true) { token ->
+			HttpRequest.newBuilder(uri)
+				.header("Authorization", "Bearer $token")
+				.timeout(timeout)
+				.GET()
+				.build()
+		}
+		val body = checkedBody(response)
+		val success = try {
+			body.getValue("success").jsonPrimitive.boolean
+		} catch (error: IllegalArgumentException) {
+			throw unreadableReply(response, error)
+		} catch (error: NoSuchElementException) {
+			throw unreadableReply(response, error)
+		}
+		if (!success) {
+			throw errorFor(response.statusCode(), body.getValue("errors").jsonArray.first().jsonObject)
+		}
+		return body
+	}
+
+	/**
+	 * Sends a request with the current token, and once more with a new token if Cloudflare turns it down.
+	 *
+	 * @param timeout time limit set on the request, for the error message
+	 * @param retry whether sending it again after a server error is safe
+	 * @param build builds the request around a token
+	 * @return the last reply
+	 * @throws SQLException when the request fails, or no token can be had
+	 */
+	private fun sendWithToken(timeout: Duration, retry: Boolean, build: (String) -> HttpRequest): HttpResponse<String> {
+		val token = credentials.token()
+		val response = sendAndRetry(build(token), timeout, retry)
+		if (response.statusCode() != 401 && response.statusCode() != 403) {
+			return response
+		}
+		// A sign-in token can end early, so get a new one and try once more.
+		val renewed = credentials.renew(token) ?: return response
+		return sendAndRetry(build(renewed), timeout, retry)
 	}
 
 	/**
@@ -252,46 +354,6 @@ class D1Client(
 	}
 
 	/**
-	 * Sends a request and turns network failures into SQL exceptions.
-	 *
-	 * @param request request to send
-	 * @param timeout time limit set on the request, for the error message
-	 * @return the reply
-	 * @throws SQLException when the request times out, can't connect, is cut off or is stopped
-	 */
-	private fun send(request: HttpRequest, timeout: Duration): HttpResponse<String> {
-		try {
-			return httpClient.send(request, HttpResponse.BodyHandlers.ofString())
-		} catch (error: HttpTimeoutException) {
-			val seconds = BigDecimal(timeout.toMillis()).movePointLeft(3).stripTrailingZeros().toPlainString()
-			val unit = if (seconds == "1") "second" else "seconds"
-			throw SQLTimeoutException(
-				"Cloudflare did not reply within $seconds $unit. A statement that changes data may or may not "
-					+ "have been saved.",
-				"HYT00",
-				error,
-			)
-		} catch (error: ConnectException) {
-			throw SQLTransientConnectionException(
-				"Could not reach Cloudflare's API. Check your network connection.",
-				"08001",
-				error,
-			)
-		} catch (error: IOException) {
-			throw SQLTransientConnectionException(
-				"Lost the connection to Cloudflare's API before it replied. Check your network connection and try "
-					+ "again. A statement that changes data may or may not have been saved.",
-				"08S01",
-				error,
-			)
-		} catch (error: InterruptedException) {
-			// Keep the stop request so the caller's thread still sees it.
-			Thread.currentThread().interrupt()
-			throw SQLException("The request to Cloudflare was stopped before it replied.", "HY008", error)
-		}
-	}
-
-	/**
 	 * Parses the reply body as a JSON object.
 	 *
 	 * @param response reply to parse
@@ -320,6 +382,17 @@ class D1Client(
 			"08000",
 			cause,
 		)
+	}
+
+	/**
+	 * Builds the error for a list the driver can't read.
+	 *
+	 * @param item what the list holds, like "database"
+	 * @param cause parse failure
+	 * @return the exception to throw
+	 */
+	private fun unreadableList(item: String, cause: Throwable): SQLException {
+		return SQLNonTransientConnectionException("Cloudflare sent a $item list the driver could not read.", "08000", cause)
 	}
 
 	/**
@@ -407,11 +480,7 @@ class D1Client(
 	private fun requestErrorFor(status: Int, code: Int, message: String): SQLException {
 		return when (status) {
 			401, 403 -> {
-				SQLInvalidAuthorizationSpecException(
-					"Cloudflare rejected the API token. Check it is valid and has D1 access. ($message)",
-					"28000",
-					code,
-				)
+				credentials.rejected(code, message)
 			}
 
 			404 -> {
@@ -440,5 +509,48 @@ class D1Client(
 
 		/** Databases asked for per page of the list, which is Cloudflare's most. */
 		private const val DATABASES_PER_PAGE = 10000
+
+		/** Accounts asked for per page of the list, which is Cloudflare's most. */
+		private const val ACCOUNTS_PER_PAGE = 50
+
+		/**
+		 * Sends a request and turns network failures into SQL exceptions.
+		 *
+		 * @param request request to send
+		 * @param timeout time limit set on the request, for the error message
+		 * @return the reply
+		 * @throws SQLException when the request times out, can't connect, is cut off or is stopped
+		 */
+		internal fun send(request: HttpRequest, timeout: Duration): HttpResponse<String> {
+			try {
+				return httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+			} catch (error: HttpTimeoutException) {
+				val seconds = BigDecimal(timeout.toMillis()).movePointLeft(3).stripTrailingZeros().toPlainString()
+				val unit = if (seconds == "1") "second" else "seconds"
+				throw SQLTimeoutException(
+					"Cloudflare did not reply within $seconds $unit. A statement that changes data may or may not "
+						+ "have been saved.",
+					"HYT00",
+					error,
+				)
+			} catch (error: ConnectException) {
+				throw SQLTransientConnectionException(
+					"Could not reach Cloudflare's API. Check your network connection.",
+					"08001",
+					error,
+				)
+			} catch (error: IOException) {
+				throw SQLTransientConnectionException(
+					"Lost the connection to Cloudflare's API before it replied. Check your network connection and try "
+						+ "again. A statement that changes data may or may not have been saved.",
+					"08S01",
+					error,
+				)
+			} catch (error: InterruptedException) {
+				// Keep the stop request so the caller's thread still sees it.
+				Thread.currentThread().interrupt()
+				throw SQLException("The request to Cloudflare was stopped before it replied.", "HY008", error)
+			}
+		}
 	}
 }

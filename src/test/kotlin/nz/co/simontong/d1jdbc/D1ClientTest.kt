@@ -310,7 +310,7 @@ class D1ClientTest {
 	fun `tries the database list again after a server error`() {
 		server.databaseListFailures = 2
 
-		assertEquals(listOf(D1DatabaseInfo("db456", "test-db")), client.listDatabases())
+		assertEquals(listOf(D1DatabaseInfo("db456", "test-db", "acc123")), client.listDatabases())
 		assertEquals(3, server.databaseListRequests.size)
 	}
 

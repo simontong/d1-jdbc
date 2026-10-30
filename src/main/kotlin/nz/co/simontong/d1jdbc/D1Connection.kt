@@ -24,15 +24,23 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executor
 
 /**
- * A JDBC connection to the D1 databases of one account, where statements run on the chosen one.
+ * A JDBC connection to the D1 databases of one or more accounts, where statements run on the chosen one.
  *
- * @param client client that sends SQL to D1
+ * @param clients one client per account, each sending SQL to that account's databases
  * @param settings settings the connection was opened with
  */
 class D1Connection(
-	internal val client: D1Client,
+	private val clients: List<D1Client>,
 	private val settings: D1Settings,
 ) : Connection {
+	/**
+	 * Opens a connection to one account.
+	 *
+	 * @param client client for the account
+	 * @param settings settings the connection was opened with
+	 */
+	constructor(client: D1Client, settings: D1Settings) : this(listOf(client), settings)
+
 	@Volatile
 	private var closed = false
 	private var warnings: SQLWarning? = null
@@ -46,7 +54,7 @@ class D1Connection(
 	@Volatile
 	private var databaseId: String? = settings.databaseId
 
-	/** The account's databases sorted by name, loaded the first time they're needed. */
+	/** Every account's databases sorted by name, loaded the first time they're needed. */
 	@Volatile
 	private var databaseList: List<D1DatabaseInfo>? = null
 
@@ -54,7 +62,7 @@ class D1Connection(
 	private val schemaCaches = ConcurrentHashMap<String, SchemaCache>()
 
 	/**
-	 * Lists the account's databases, loading the list the first time or when asked to.
+	 * Lists every account's databases, loading the list the first time or when asked to.
 	 *
 	 * @param reload whether to ask Cloudflare again
 	 * @param timeout how long to wait, or null for the client's default
@@ -66,7 +74,11 @@ class D1Connection(
 		if (known != null && !reload) {
 			return known
 		}
-		val listed = if (timeout != null) client.listDatabases(timeout) else client.listDatabases()
+		val listed = clients.flatMap { client ->
+			val databases = if (timeout != null) client.listDatabases(timeout) else client.listDatabases()
+			// With several accounts, each name starts with its account's name.
+			if (clients.size > 1) databases.map { it.copy(name = "${client.accountName} / ${it.name}") } else databases
+		}
 		// Cloudflare doesn't promise names are unique, so a shared name gets its ID added.
 		val shared = listed.groupingBy { it.name }.eachCount().filterValues { it > 1 }.keys
 		val loaded = listed
@@ -84,7 +96,19 @@ class D1Connection(
 	 * @throws SQLException when the list can't be loaded
 	 */
 	private fun databaseWithId(id: String): D1DatabaseInfo {
-		return databases().firstOrNull { it.id.equals(id, ignoreCase = true) } ?: D1DatabaseInfo(id, id)
+		return databases().firstOrNull { it.id.equals(id, ignoreCase = true) } ?: D1DatabaseInfo(id, id, clients.first().accountId)
+	}
+
+	/**
+	 * Returns the client for the account a database belongs to.
+	 *
+	 * @param id database ID
+	 * @return the client
+	 * @throws SQLException when the list can't be loaded
+	 */
+	private fun clientFor(id: String): D1Client {
+		val accountId = databaseWithId(id).accountId
+		return clients.firstOrNull { it.accountId == accountId } ?: clients.first()
 	}
 
 	/**
@@ -96,9 +120,18 @@ class D1Connection(
 	private fun currentDatabaseId(): String {
 		databaseId?.let { return it }
 		// IDEs need a current database, so the first by name stands in until the user picks one.
-		val first = databases().firstOrNull() ?: throw SQLException("This Cloudflare account has no D1 databases.", "3D000")
+		val first = databases().firstOrNull() ?: throw SQLException(noDatabasesMessage(), "3D000")
 		databaseId = first.id
 		return first.id
+	}
+
+	/**
+	 * Builds the message for a connection that reaches no databases.
+	 *
+	 * @return the message
+	 */
+	private fun noDatabasesMessage(): String {
+		return if (clients.size > 1) "None of these Cloudflare accounts has a D1 database." else "This Cloudflare account has no D1 databases."
 	}
 
 	/**
@@ -112,6 +145,7 @@ class D1Connection(
 	internal fun execute(statements: List<D1Query>, timeout: Duration? = null): List<D1Result> {
 		val id = currentDatabaseId()
 		val reads = statements.all { isReadOnlySql(it.sql) }
+		val client = clientFor(id)
 		return if (timeout != null) {
 			client.execute(id, statements, timeout, retry = reads)
 		} else {
@@ -126,7 +160,7 @@ class D1Connection(
 	 * @return the cache
 	 */
 	private fun schemaCacheFor(id: String): SchemaCache {
-		return schemaCaches.computeIfAbsent(id) { SchemaCache(client, id, Duration.ofSeconds(settings.schemaCacheSeconds)) }
+		return schemaCaches.computeIfAbsent(id) { SchemaCache(clientFor(id), id, Duration.ofSeconds(settings.schemaCacheSeconds)) }
 	}
 
 	/** The chosen database's schema cache. */
@@ -326,7 +360,7 @@ class D1Connection(
 	 *
 	 * @param message warning text
 	 */
-	private fun addWarning(message: String) {
+	internal fun addWarning(message: String) {
 		val warning = SQLWarning(message, "01000")
 		val first = warnings
 		if (first == null) {
@@ -395,7 +429,7 @@ class D1Connection(
 
 	/** The JDBC URL for this database. */
 	internal val url: String
-		get() = "jdbc:d1://${settings.accountId}" + (settings.databaseId?.let { "/$it" } ?: "")
+		get() = "jdbc:d1://${settings.accountId.orEmpty()}" + (settings.databaseId?.let { "/$it" } ?: "")
 
 	/**
 	 * Turns read-only mode on or off, unless the connection settings force it on.
@@ -435,7 +469,7 @@ class D1Connection(
 			return
 		}
 		val found = databases().firstOrNull { it.name == catalog } ?: databases(reload = true).firstOrNull { it.name == catalog }
-		databaseId = found?.id ?: throw SQLException("There's no D1 database called \"$catalog\" in this account.", "3D000")
+		databaseId = found?.id ?: throw SQLException("There's no D1 database called \"$catalog\" that this connection can reach.", "3D000")
 	}
 
 	/**
@@ -550,8 +584,8 @@ class D1Connection(
 		try {
 			when {
 				id == null -> databases(reload = true, Duration.ofSeconds(timeout.toLong()).takeIf { timeout > 0 })
-				timeout > 0 -> client.execute(id, query, Duration.ofSeconds(timeout.toLong()))
-				else -> client.execute(id, query)
+				timeout > 0 -> clientFor(id).execute(id, query, Duration.ofSeconds(timeout.toLong()))
+				else -> clientFor(id).execute(id, query)
 			}
 		} catch (error: SQLException) {
 			return false

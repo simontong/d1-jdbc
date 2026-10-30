@@ -1,5 +1,6 @@
 package nz.co.simontong.d1jdbc
 
+import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
 import java.net.URI
@@ -55,12 +56,36 @@ class StubD1Server : AutoCloseable {
 	/** Page queries of each database list request received, like `page=1&per_page=10000`. */
 	val databaseListRequests = mutableListOf<String>()
 
+	/** Account IDs and names the account list returns. */
+	var accounts = listOf("acc123" to "Main")
+
+	/** Databases per account ID, used in place of [databases] for the accounts it names. */
+	var databasesByAccount = emptyMap<String, List<Pair<String, String>>>()
+
+	/** Tokens the stub accepts, or null to accept any. Others get HTTP 403 with code 9109. */
+	var acceptedTokens: Set<String>? = null
+
+	/** Authorization header of every request received, oldest first. */
+	val authorizations = mutableListOf<String?>()
+
 	/** Base URI to pass to the client in place of the Cloudflare API. */
 	val baseUri: URI
 		get() = URI.create("http://127.0.0.1:${server.address.port}/client/v4")
 
 	init {
 		server.createContext("/") { exchange ->
+			val authorization = exchange.requestHeaders.getFirst("Authorization")
+			authorizations += authorization
+			val allowed = acceptedTokens
+			if (allowed != null && authorization?.removePrefix("Bearer ") !in allowed) {
+				reply(exchange, 403, """{"success":false,"errors":[{"code":9109,"message":"Invalid access token"}],"messages":[],"result":null}""")
+				return@createContext
+			}
+			if (exchange.requestMethod == "GET" && exchange.requestURI.path == "/client/v4/accounts") {
+				val items = accounts.joinToString(",") { (id, name) -> """{"id":"$id","name":"$name"}""" }
+				reply(exchange, 200, """{"result":[$items],"errors":[],"messages":[],"success":true}""")
+				return@createContext
+			}
 			if (exchange.requestMethod == "GET" && exchange.requestURI.path.endsWith("/d1/database")) {
 				databaseListRequests += exchange.requestURI.query.orEmpty()
 				if (databaseListFailures > 0) {
@@ -70,10 +95,8 @@ class StubD1Server : AutoCloseable {
 					return@createContext
 				}
 				val page = Regex("""(?:^|&)page=(\d+)""").find(exchange.requestURI.query.orEmpty())?.groupValues?.get(1)?.toInt() ?: 1
-				val bytes = databaseListJson(page).encodeToByteArray()
-				exchange.responseHeaders.add("Content-Type", "application/json")
-				exchange.sendResponseHeaders(200, bytes.size.toLong())
-				exchange.responseBody.use { it.write(bytes) }
+				val account = exchange.requestURI.path.substringAfter("/accounts/").substringBefore("/")
+				reply(exchange, 200, databaseListJson(databasesByAccount[account] ?: databases, page))
 				return@createContext
 			}
 			val body = exchange.requestBody.readAllBytes().decodeToString()
@@ -102,16 +125,31 @@ class StubD1Server : AutoCloseable {
 	}
 
 	/**
-	 * Builds Cloudflare's reply listing one page of [databases].
+	 * Sends a JSON reply.
 	 *
+	 * @param exchange the request
+	 * @param status HTTP status code
+	 * @param body reply body
+	 */
+	private fun reply(exchange: HttpExchange, status: Int, body: String) {
+		val bytes = body.encodeToByteArray()
+		exchange.responseHeaders.add("Content-Type", "application/json")
+		exchange.sendResponseHeaders(status, bytes.size.toLong())
+		exchange.responseBody.use { it.write(bytes) }
+	}
+
+	/**
+	 * Builds Cloudflare's reply listing one page of databases.
+	 *
+	 * @param listed every database in the account
 	 * @param page page number, starting at 1
 	 * @return the reply body
 	 */
-	private fun databaseListJson(page: Int): String {
-		val onPage = databases.drop((page - 1) * databasesPerPage).take(databasesPerPage)
+	private fun databaseListJson(listed: List<Pair<String, String>>, page: Int): String {
+		val onPage = listed.drop((page - 1) * databasesPerPage).take(databasesPerPage)
 		val items = onPage.joinToString(",") { (id, name) -> """{"uuid":"$id","name":"$name","version":"production"}""" }
 		return """{"result":[$items],"result_info":{"page":$page,"per_page":$databasesPerPage,""" +
-			""""count":${onPage.size},"total_count":${databases.size}},"errors":[],"messages":[],"success":true}"""
+			""""count":${onPage.size},"total_count":${listed.size}},"errors":[],"messages":[],"success":true}"""
 	}
 
 	/**

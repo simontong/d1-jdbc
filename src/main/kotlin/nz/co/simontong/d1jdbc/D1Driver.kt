@@ -3,12 +3,14 @@ package nz.co.simontong.d1jdbc
 import java.net.URI
 import java.net.URISyntaxException
 import java.net.URLDecoder
+import java.nio.file.Path
 import java.sql.Connection
 import java.sql.Driver
 import java.sql.DriverManager
 import java.sql.DriverPropertyInfo
 import java.sql.SQLException
 import java.sql.SQLFeatureNotSupportedException
+import java.sql.SQLInvalidAuthorizationSpecException
 import java.sql.SQLNonTransientConnectionException
 import java.util.Properties
 import java.util.logging.Logger
@@ -34,12 +36,58 @@ class D1Driver : Driver {
 		}
 
 		val settings = D1Settings.parse(url, info ?: Properties())
-		val client = D1Client(
-			accountId = settings.accountId,
-			apiToken = settings.apiToken,
-			baseUri = settings.apiBaseUrl,
+		if (settings.auth == D1Auth.TOKEN) {
+			val client = D1Client(
+				accountId = settings.accountId.orEmpty(),
+				apiToken = settings.apiToken,
+				baseUri = settings.apiBaseUrl,
+			)
+			return D1Connection(client, settings)
+		}
+		return signedInConnection(settings, ::openInBrowser)
+	}
+
+	/**
+	 * Opens a connection with a Cloudflare sign-in, reaching every account the user ticked.
+	 *
+	 * @param settings connection settings
+	 * @param openBrowser opens a web page in the user's browser
+	 * @return the connection
+	 * @throws SQLException when signing in fails or no account can be reached
+	 */
+	internal fun signedInConnection(settings: D1Settings, openBrowser: (URI) -> Unit): Connection {
+		val signIn = SignInCredentials.shared(
+			SignInSettings(SignInCredentials.CLIENT_ID, settings.signInBaseUrl, settings.tokenFile),
+			openBrowser,
 		)
-		return D1Connection(client, settings)
+		val accounts = D1Client("", signIn, settings.apiBaseUrl).listAccounts()
+		if (accounts.isEmpty()) {
+			throw SQLInvalidAuthorizationSpecException(
+				"The Cloudflare sign-in reaches no accounts. Delete ${settings.tokenFile}, connect, and tick at least "
+					+ "one account on Cloudflare's page. An account admin may also have turned off third-party apps.",
+				"28000",
+			)
+		}
+		val chosen = accounts.filter { settings.accountId == null || it.id.equals(settings.accountId, ignoreCase = true) }
+		if (chosen.isEmpty()) {
+			throw SQLInvalidAuthorizationSpecException(
+				"The Cloudflare sign-in doesn't include account ${settings.accountId}. Remove the account ID from the URL, "
+					+ "or delete ${settings.tokenFile}, connect, and tick that account on Cloudflare's page.",
+				"28000",
+			)
+		}
+
+		// A sign-in without D1 write permission can only read, so the connection says so up front.
+		val canWrite = signIn.canWrite
+		val clients = chosen.map { D1Client(it.id, signIn, settings.apiBaseUrl, accountName = it.name) }
+		val connection = D1Connection(clients, if (canWrite) settings else settings.copy(readOnly = true))
+		if (!canWrite) {
+			connection.addWarning(
+				"You signed in without D1 write permission, so this connection is read-only. To change data, delete "
+					+ "${settings.tokenFile}, connect, and keep D1 Write on Cloudflare's page.",
+			)
+		}
+		return connection
 	}
 
 	/**
@@ -72,7 +120,12 @@ class D1Driver : Driver {
 		readOnly.choices = arrayOf("true", "false")
 		val schemaCache = DriverPropertyInfo("schemaCacheSeconds", info?.getProperty("schemaCacheSeconds") ?: "30")
 		schemaCache.description = "Seconds to reuse the table list before asking D1 again."
-		return arrayOf(password, readOnly, schemaCache)
+		val auth = DriverPropertyInfo("auth", info?.getProperty("auth") ?: "token")
+		auth.description = "token to use an API token, or browser to sign in with Cloudflare in the browser."
+		auth.choices = arrayOf("token", "browser")
+		val tokenFile = DriverPropertyInfo("tokenFile", info?.getProperty("tokenFile") ?: D1Settings.defaultTokenFile().toString())
+		tokenFile.description = "File that keeps the Cloudflare sign-in when auth is browser."
+		return arrayOf(password, readOnly, schemaCache, auth, tokenFile)
 	}
 
 	/** @return the driver's major version */
@@ -103,23 +156,38 @@ class D1Driver : Driver {
 	}
 }
 
+/** How a connection proves who it is to Cloudflare. */
+enum class D1Auth {
+	/** An API token given as the password. */
+	TOKEN,
+
+	/** A Cloudflare sign-in in the browser. */
+	BROWSER,
+}
+
 /**
  * Connection settings read from the JDBC URL and properties.
  *
- * @property accountId Cloudflare account ID
+ * @property accountId Cloudflare account ID, or null to reach every account a sign-in allows
  * @property databaseId D1 database to start on, or null to choose one later
- * @property apiToken Cloudflare API token
+ * @property apiToken Cloudflare API token, or empty when signing in
  * @property apiBaseUrl Cloudflare API base address
  * @property readOnly whether to block statements that change data
  * @property schemaCacheSeconds how long to reuse the schema once loaded
+ * @property auth how the connection proves who it is
+ * @property signInBaseUrl Cloudflare sign-in base address
+ * @property tokenFile file that keeps the Cloudflare sign-in
  */
 data class D1Settings(
-	val accountId: String,
+	val accountId: String?,
 	val databaseId: String?,
 	val apiToken: String,
 	val apiBaseUrl: URI,
 	val readOnly: Boolean,
 	val schemaCacheSeconds: Long = 30,
+	val auth: D1Auth = D1Auth.TOKEN,
+	val signInBaseUrl: URI = URI.create(SignInCredentials.CLOUDFLARE_SIGN_IN),
+	val tokenFile: Path = defaultTokenFile(),
 ) {
 	/**
 	 * Describes the settings without the API token, so it never ends up in logs.
@@ -128,7 +196,7 @@ data class D1Settings(
 	 */
 	override fun toString(): String {
 		return "D1Settings(accountId=$accountId, databaseId=$databaseId, apiBaseUrl=$apiBaseUrl, readOnly=$readOnly, " +
-			"schemaCacheSeconds=$schemaCacheSeconds)"
+			"schemaCacheSeconds=$schemaCacheSeconds, auth=$auth, signInBaseUrl=$signInBaseUrl, tokenFile=$tokenFile)"
 	}
 
 	companion object {
@@ -141,7 +209,23 @@ data class D1Settings(
 		/** Characters an account or database ID may hold. */
 		private val ID_PATTERN = Regex("""^[A-Za-z0-9-]*$""")
 
-		private val URL_PATTERN = Regex("""^jdbc:d1://([^/?]+)(?:/([^/?]*))?/?(?:\?(.*))?$""")
+		private val URL_PATTERN = Regex("""^jdbc:d1://([^/?]*)(?:/([^/?]*))?/?(?:\?(.*))?$""")
+
+		/**
+		 * Works out where the sign-in is kept when no tokenFile is set, in the user's config folder.
+		 *
+		 * @return the file
+		 */
+		fun defaultTokenFile(): Path {
+			val appData = System.getenv("APPDATA")
+			val xdg = System.getenv("XDG_CONFIG_HOME")
+			val folder = when {
+				!appData.isNullOrBlank() -> Path.of(appData)
+				!xdg.isNullOrBlank() -> Path.of(xdg)
+				else -> Path.of(System.getProperty("user.home"), ".config")
+			}
+			return folder.resolve("d1-jdbc").resolve("cloudflare-sign-in.json")
+		}
 
 		/**
 		 * Reads settings from a URL and properties, with properties taking priority.
@@ -171,22 +255,33 @@ data class D1Settings(
 				)
 			}
 			val options = urlOptions + info.stringPropertyNames().associateWith { info.getProperty(it) }
+			val auth = auth(options["auth"])
 
 			val apiToken = options["password"].orEmpty()
-			if (apiToken.isBlank()) {
+			if (auth == D1Auth.TOKEN && apiToken.isBlank()) {
 				throw SQLNonTransientConnectionException(
-					"No Cloudflare API token was given. Enter it as the connection password.",
+					"No Cloudflare API token was given. Enter it as the connection password, or add ?auth=browser to the "
+						+ "URL to sign in with Cloudflare.",
 					"28000",
+				)
+			}
+			if (auth == D1Auth.TOKEN && accountId.isEmpty()) {
+				throw SQLNonTransientConnectionException(
+					"The D1 URL needs your Cloudflare account ID, like jdbc:d1://<account id>, when using an API token.",
+					"08001",
 				)
 			}
 
 			return D1Settings(
-				accountId = accountId,
+				accountId = accountId.ifEmpty { null },
 				databaseId = databaseId.ifEmpty { null },
-				apiToken = apiToken,
+				apiToken = if (auth == D1Auth.TOKEN) apiToken else "",
 				apiBaseUrl = apiBaseUrl(options["apiBaseUrl"]),
 				readOnly = options["readOnly"].toBoolean(),
 				schemaCacheSeconds = schemaCacheSeconds(options["schemaCacheSeconds"]),
+				auth = auth,
+				signInBaseUrl = signInBaseUrl(options["signInBaseUrl"]),
+				tokenFile = options["tokenFile"]?.takeIf { it.isNotBlank() }?.let { Path.of(it.trim()) } ?: defaultTokenFile(),
 			)
 		}
 
@@ -211,6 +306,44 @@ data class D1Settings(
 					"apiBaseUrl must be $CLOUDFLARE_API, so the API token is only sent to Cloudflare.",
 					"08001",
 				)
+			}
+			return uri
+		}
+
+		/**
+		 * Reads how the connection proves who it is.
+		 *
+		 * @param value setting text, or null for an API token
+		 * @return the choice
+		 * @throws SQLException when the value isn't token or browser
+		 */
+		private fun auth(value: String?): D1Auth {
+			return when (value?.trim()?.lowercase()) {
+				null, "", "token" -> D1Auth.TOKEN
+				"browser" -> D1Auth.BROWSER
+				else -> throw SQLNonTransientConnectionException("auth must be token or browser.", "08001")
+			}
+		}
+
+		/**
+		 * Reads the sign-in address, allowing only Cloudflare, or this computer so tests can use a stub.
+		 *
+		 * @param value setting text, or null for Cloudflare's address
+		 * @return the address
+		 * @throws SQLException when the address isn't Cloudflare's or this computer's
+		 */
+		private fun signInBaseUrl(value: String?): URI {
+			val cloudflare = SignInCredentials.CLOUDFLARE_SIGN_IN
+			if (value == null || value == cloudflare) {
+				return URI.create(cloudflare)
+			}
+			val uri = try {
+				URI(value)
+			} catch (error: URISyntaxException) {
+				null
+			}
+			if (uri == null || uri.scheme !in setOf("http", "https") || uri.host !in LOCAL_HOSTS) {
+				throw SQLNonTransientConnectionException("signInBaseUrl must be $cloudflare.", "08001")
 			}
 			return uri
 		}

@@ -111,7 +111,7 @@ class D1DatabasesTest {
 		server.connect("jdbc:d1://acc123/id-shop").use { connection ->
 			val error = assertFailsWith<SQLException> { connection.catalog = "nope" }
 
-			assertEquals("There's no D1 database called \"nope\" in this account.", error.message)
+			assertEquals("There's no D1 database called \"nope\" that this connection can reach.", error.message)
 			assertEquals("3D000", error.sqlState)
 			assertEquals("shop", connection.catalog)
 		}
