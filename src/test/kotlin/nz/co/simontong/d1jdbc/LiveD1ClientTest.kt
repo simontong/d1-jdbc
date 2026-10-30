@@ -132,8 +132,13 @@ class LiveD1ClientTest {
 
 		DriverManager.getConnection(url, properties).use { connection ->
 			val statement = connection.createStatement()
+			statement.executeUpdate("drop view if exists live_broken")
 			statement.executeUpdate("drop table if exists live_child")
 			statement.executeUpdate("drop table if exists live_parent")
+			statement.executeUpdate("drop table if exists live_gone")
+			statement.executeUpdate("create table live_gone (x)")
+			statement.executeUpdate("create view live_broken as select x from live_gone")
+			statement.executeUpdate("drop table live_gone")
 			statement.executeUpdate("create table live_parent (id integer primary key, code text not null unique)")
 			statement.executeUpdate(
 				"create table live_child (id integer constraint pk_live primary key, "
@@ -143,7 +148,7 @@ class LiveD1ClientTest {
 				val metaData = connection.metaData
 				val tables = metaData.getTables(null, null, "%", null)
 				val names = generateSequence { if (tables.next()) tables.getString("TABLE_NAME") else null }.toList()
-				assertTrue("live_parent" in names && "live_child" in names)
+				assertTrue("live_parent" in names && "live_child" in names && "live_broken" in names)
 				assertTrue(names.none { it.startsWith("_cf_") || it.startsWith("sqlite_") })
 
 				val columns = metaData.getColumns(null, null, "live_parent", null)
@@ -169,6 +174,7 @@ class LiveD1ClientTest {
 				assertEquals("fk_live", keys.getString("FK_NAME"))
 				assertFalse(keys.next())
 			} finally {
+				statement.executeUpdate("drop view live_broken")
 				statement.executeUpdate("drop table live_child")
 				statement.executeUpdate("drop table live_parent")
 			}

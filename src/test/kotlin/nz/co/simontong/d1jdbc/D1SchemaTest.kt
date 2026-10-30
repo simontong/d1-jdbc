@@ -188,6 +188,22 @@ class D1SchemaTest {
 		}
 	}
 
+	/** Checks that a view whose table was dropped doesn't hide the rest of the schema. */
+	@Test
+	fun `skips a broken view and lists everything else`() {
+		database.setUp("create table gone (x)", "create view broken as select x from gone", "drop table gone")
+
+		server.connect().use { connection ->
+			val metaData = connection.metaData
+			assertEquals(
+				listOf(listOf("child"), listOf("parent"), listOf("broken"), listOf("v")),
+				read(metaData.getTables(null, null, "%", null), "TABLE_NAME"),
+			)
+			assertEquals(emptyList(), read(metaData.getColumns(null, null, "broken", "%"), "COLUMN_NAME"))
+			assertEquals(4, read(metaData.getColumns(null, null, "parent", "%"), "COLUMN_NAME").size)
+		}
+	}
+
 	/** Checks that keys named in CREATE TABLE keep their names, and unnamed keys have none. */
 	@Test
 	fun `names keys the table's SQL names`() {

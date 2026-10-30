@@ -149,11 +149,41 @@ private fun JsonElement.number(): Int = (this as JsonPrimitive).content.toDouble
 /**
  * Reads the rows of a result as maps from column name to value.
  *
- * @param result one statement's result
+ * @param result one statement's result, or null when it failed
  * @return one map per row
  */
-private fun records(result: D1Result): List<Map<String, JsonElement>> {
+private fun records(result: D1Result?): List<Map<String, JsonElement>> {
+	if (result == null) {
+		return emptyList()
+	}
 	return result.rows.map { row -> result.columns.zip(row).toMap() }
+}
+
+/**
+ * Runs a batch, and when one statement fails, splits the batch to run the rest without it.
+ *
+ * A view whose table was dropped makes its PRAGMA fail, and D1 fails the whole batch for it.
+ *
+ * @param client client for the account
+ * @param databaseId database to run them on
+ * @param queries statements to run
+ * @return one result per statement, null for each that failed
+ * @throws java.sql.SQLException when Cloudflare fails for any reason other than the SQL
+ */
+private fun runSkippingFailures(client: D1Client, databaseId: String, queries: List<D1Query>): List<D1Result?> {
+	try {
+		return client.execute(databaseId, queries)
+	} catch (error: java.sql.SQLException) {
+		if (error.errorCode != D1Client.SQL_ERROR_CODE) {
+			throw error
+		}
+		if (queries.size == 1) {
+			return listOf(null)
+		}
+	}
+	val half = queries.size / 2
+	return runSkippingFailures(client, databaseId, queries.subList(0, half)) +
+		runSkippingFailures(client, databaseId, queries.subList(half, queries.size))
 }
 
 /**
@@ -189,7 +219,7 @@ internal fun loadSchema(client: D1Client, databaseId: String): D1Schema {
 		queries += D1Query("pragma foreign_key_list($name)")
 	}
 	indexNames.forEach { queries += D1Query("pragma index_xinfo(${quoted(it)})") }
-	val results = queries.chunked(STATEMENTS_PER_REQUEST).flatMap { client.execute(databaseId, it) }
+	val results = queries.chunked(STATEMENTS_PER_REQUEST).flatMap { runSkippingFailures(client, databaseId, it) }
 
 	val indexColumns = indexNames.indices.associate { index ->
 		val columns = records(results[found.size * 3 + index])
@@ -220,10 +250,10 @@ internal fun loadSchema(client: D1Client, databaseId: String): D1Schema {
 /**
  * Reads the visible columns from `pragma table_xinfo`.
  *
- * @param result the PRAGMA's result
+ * @param result the PRAGMA's result, or null when it failed
  * @return columns in order
  */
-private fun readColumns(result: D1Result): List<SchemaColumn> {
+private fun readColumns(result: D1Result?): List<SchemaColumn> {
 	// Hidden 1 marks a virtual table's hidden column, and 2 or 3 a generated column.
 	return records(result).filter { it.getValue("hidden").number() != 1 }.map { row ->
 		SchemaColumn(
@@ -240,11 +270,11 @@ private fun readColumns(result: D1Result): List<SchemaColumn> {
 /**
  * Reads foreign keys from `pragma foreign_key_list`, grouping the columns of each key.
  *
- * @param result the PRAGMA's result
+ * @param result the PRAGMA's result, or null when it failed
  * @param named keys that CREATE TABLE names
  * @return foreign keys in order
  */
-private fun readForeignKeys(result: D1Result, named: List<NamedForeignKey>): List<SchemaForeignKey> {
+private fun readForeignKeys(result: D1Result?, named: List<NamedForeignKey>): List<SchemaForeignKey> {
 	val unused = named.toMutableList()
 	return records(result)
 		.groupBy { it.getValue("id").number() }

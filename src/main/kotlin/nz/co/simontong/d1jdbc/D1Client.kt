@@ -384,11 +384,11 @@ class D1Client(
 		}
 	}
 
-	private companion object {
+	internal companion object {
 		/** Cloudflare's error code for a failed SQL statement. */
 		const val SQL_ERROR_CODE = 7500
 
 		/** Databases asked for per page of the list, which is Cloudflare's most. */
-		const val DATABASES_PER_PAGE = 10000
+		private const val DATABASES_PER_PAGE = 10000
 	}
 }
