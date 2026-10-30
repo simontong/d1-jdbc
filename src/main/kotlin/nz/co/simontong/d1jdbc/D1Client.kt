@@ -1,5 +1,6 @@
 package nz.co.simontong.d1jdbc
 
+import java.io.IOException
 import java.math.BigDecimal
 import java.net.ConnectException
 import java.net.URI
@@ -218,7 +219,7 @@ class D1Client(
 	 * @param request request to send
 	 * @param timeout time limit set on the request, for the error message
 	 * @return the reply
-	 * @throws SQLException when the request times out or can't connect
+	 * @throws SQLException when the request times out, can't connect, is cut off or is stopped
 	 */
 	private fun send(request: HttpRequest, timeout: Duration): HttpResponse<String> {
 		try {
@@ -233,6 +234,17 @@ class D1Client(
 				"08001",
 				error,
 			)
+		} catch (error: IOException) {
+			throw SQLTransientConnectionException(
+				"Lost the connection to Cloudflare's API before it replied. Check your network connection and try "
+					+ "again. A statement that changes data may or may not have been saved.",
+				"08S01",
+				error,
+			)
+		} catch (error: InterruptedException) {
+			// Keep the stop request so the caller's thread still sees it.
+			Thread.currentThread().interrupt()
+			throw SQLException("The request to Cloudflare was stopped before it replied.", "HY008", error)
 		}
 	}
 

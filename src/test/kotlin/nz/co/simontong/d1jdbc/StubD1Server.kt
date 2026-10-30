@@ -40,6 +40,9 @@ class StubD1Server : AutoCloseable {
 	/** Database IDs and names the account lists, where the default ID matches [connect]'s URL. */
 	var databases = listOf("db456" to "test-db")
 
+	/** Whether to close each SQL request's connection without replying, like a dropped network. */
+	var dropConnections = false
+
 	/** Databases the stub lists per page, standing in for Cloudflare's page size. */
 	var databasesPerPage = 10000
 
@@ -71,6 +74,10 @@ class StubD1Server : AutoCloseable {
 			)
 			if (delayMillis > 0) {
 				Thread.sleep(delayMillis)
+			}
+			if (dropConnections) {
+				exchange.close()
+				return@createContext
 			}
 			val (replyStatus, replyBody) = handler?.invoke(body) ?: (status to responseBody)
 			val bytes = replyBody.encodeToByteArray()

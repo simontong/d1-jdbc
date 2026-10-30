@@ -2,7 +2,6 @@ package nz.co.simontong.d1jdbc
 
 import java.net.ServerSocket
 import java.net.URI
-import java.time.Duration
 import java.sql.SQLException
 import java.sql.SQLIntegrityConstraintViolationException
 import java.sql.SQLInvalidAuthorizationSpecException
@@ -10,10 +9,12 @@ import java.sql.SQLNonTransientConnectionException
 import java.sql.SQLSyntaxErrorException
 import java.sql.SQLTimeoutException
 import java.sql.SQLTransientConnectionException
+import java.time.Duration
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
@@ -233,7 +234,7 @@ class D1ClientTest {
 		server.respond(200, "{}", delayMillis = 2_000)
 		val impatientClient = D1Client(
 			accountId = "acc123",
-				apiToken = "secret-token",
+			apiToken = "secret-token",
 			baseUri = server.baseUri,
 			requestTimeout = Duration.ofMillis(200),
 		)
@@ -251,7 +252,7 @@ class D1ClientTest {
 		val closedPort = ServerSocket(0).use { it.localPort }
 		val offlineClient = D1Client(
 			accountId = "acc123",
-				apiToken = "secret-token",
+			apiToken = "secret-token",
 			baseUri = URI.create("http://127.0.0.1:$closedPort/client/v4"),
 		)
 
@@ -261,6 +262,45 @@ class D1ClientTest {
 
 		assertEquals("Could not reach Cloudflare's API. Check your network connection.", error.message)
 		assertEquals("08001", error.sqlState)
+	}
+
+	/** Checks that a connection dropped mid-request is reported as a lost connection. */
+	@Test
+	fun `reports a dropped connection as a lost connection`() {
+		server.dropConnections = true
+
+		val error = assertFailsWith<SQLTransientConnectionException> {
+			client.execute("db456", listOf(D1Query("select 1")))
+		}
+
+		assertEquals(
+			"Lost the connection to Cloudflare's API before it replied. Check your network connection and try again. "
+				+ "A statement that changes data may or may not have been saved.",
+			error.message,
+		)
+		assertEquals("08S01", error.sqlState)
+	}
+
+	/** Checks that stopping the thread while waiting gives an SQL error and keeps the stop request. */
+	@Test
+	fun `reports a stopped request and keeps the thread's stop flag`() {
+		server.respond(200, "{}", delayMillis = 5_000)
+		var error: Throwable? = null
+		var stillInterrupted = false
+		val worker = Thread {
+			error = runCatching { client.execute("db456", listOf(D1Query("select 1"))) }.exceptionOrNull()
+			stillInterrupted = Thread.currentThread().isInterrupted
+		}
+
+		worker.start()
+		Thread.sleep(300)
+		worker.interrupt()
+		worker.join(5_000)
+
+		assertTrue(error is SQLException, "Got $error")
+		assertEquals("The request to Cloudflare was stopped before it replied.", error?.message)
+		assertEquals("HY008", (error as SQLException).sqlState)
+		assertTrue(stillInterrupted)
 	}
 
 	/** Checks that the client reports a reply with missing fields as a connection error. */
