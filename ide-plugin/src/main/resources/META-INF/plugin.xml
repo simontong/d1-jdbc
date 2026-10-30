@@ -13,6 +13,10 @@
 	<depends>com.intellij.modules.platform</depends>
 	<depends>com.intellij.database</depends>
 
+	<applicationListeners>
+		<listener class="nz.co.simontong.d1jdbc.ide.D1IconInstaller" topic="com.intellij.ide.AppLifecycleListener"/>
+	</applicationListeners>
+
 	<extensions defaultExtensionNs="com.intellij.database">
 		<driversConfig config="d1jdbc/drivers.xml"/>
 		<artifactsConfig config="d1jdbc/artifacts.xml"/>
