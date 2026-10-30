@@ -518,18 +518,63 @@ internal class SignInCredentials(
 		private fun answerCallback(exchange: HttpExchange, state: String, reply: CompletableFuture<Map<String, String>>) {
 			val query = queryValues(exchange.requestURI.rawQuery.orEmpty())
 			val matches = query["state"] == state
-			val page = when {
-				!matches -> "This sign-in reply doesn't match the sign-in the driver started, so it was ignored."
-				query["error"] != null -> "The sign-in didn't finish. You can close this tab."
-				else -> "You're signed in to Cloudflare. You can close this tab and go back to your database tool."
+			val (title, detail) = when {
+				!matches -> "Sign-in not recognised" to "This reply doesn't belong to the sign-in that the D1 driver started, so it was ignored."
+				query["error"] != null -> "Sign-in not finished" to "You can close this tab and connect again to retry."
+				else -> "You're signed in" to "You can close this tab and go back to your database tool."
 			}
-			val bytes = "<!doctype html><meta charset=\"utf-8\"><title>D1 sign-in</title><p>$page</p>".toByteArray()
+			val bytes = callbackPage(title, detail, success = matches && query["error"] == null).toByteArray()
 			exchange.responseHeaders.add("Content-Type", "text/html; charset=utf-8")
 			exchange.sendResponseHeaders(if (matches) 200 else 400, bytes.size.toLong())
 			exchange.responseBody.use { it.write(bytes) }
 			if (matches) {
 				reply.complete(query)
 			}
+		}
+
+		/**
+		 * Builds the page the browser shows after Cloudflare sends the user back.
+		 *
+		 * @param title the page heading
+		 * @param detail one sentence under the heading
+		 * @param success whether to show a tick or a cross
+		 * @return the HTML
+		 */
+		private fun callbackPage(title: String, detail: String, success: Boolean): String {
+			val mark = if (success) "&#10003;" else "&#10005;"
+			val markColour = if (success) "#16a34a" else "#dc2626"
+			return """
+				<!doctype html>
+				<html lang="en">
+				<meta charset="utf-8">
+				<meta name="viewport" content="width=device-width, initial-scale=1">
+				<title>$title · D1 JDBC Connector</title>
+				<style>
+					:root { color-scheme: light dark; }
+					body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f4f4f5;
+						font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #18181b; }
+					main { max-width: 26rem; margin: 1.5rem; padding: 2.5rem 2rem; text-align: center; background: #fff;
+						border: 1px solid #e4e4e7; border-radius: 12px; box-shadow: 0 1px 3px rgb(0 0 0 / 0.06); }
+					.mark { width: 3rem; height: 3rem; margin: 0 auto 1.25rem; border-radius: 50%; display: grid;
+						place-items: center; font-size: 1.4rem; color: #fff; background: $markColour; }
+					h1 { margin: 0 0 0.5rem; font-size: 1.25rem; font-weight: 600; }
+					p { margin: 0; color: #52525b; }
+					footer { margin-top: 1.75rem; font-size: 0.8rem; color: #a1a1aa; }
+					@media (prefers-color-scheme: dark) {
+						body { background: #18181b; color: #f4f4f5; }
+						main { background: #27272a; border-color: #3f3f46; box-shadow: none; }
+						p { color: #a1a1aa; }
+						footer { color: #71717a; }
+					}
+				</style>
+				<main>
+					<div class="mark">$mark</div>
+					<h1>$title</h1>
+					<p>$detail</p>
+					<footer>D1 JDBC Connector</footer>
+				</main>
+				</html>
+			""".trimIndent()
 		}
 
 		/**
