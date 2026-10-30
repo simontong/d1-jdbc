@@ -580,6 +580,7 @@ class D1ResultSet internal constructor(
 
 	/** Reads a column by name. See the column number version. */
 	override fun <T : Any?> getObject(columnLabel: String?, type: Class<T>?): T? = getObject(findColumn(columnLabel), type)
+
 	/** @return warnings raised while reading the result, or null */
 	override fun getWarnings(): SQLWarning? {
 		checkOpen()
@@ -993,5 +994,4 @@ class D1ResultSet internal constructor(
 
 	/** Not supported, as D1 results are read-only. */
 	override fun updateNClob(p0: String?, p1: java.io.Reader?) = throw notSupported("Updating result sets")
-
 }

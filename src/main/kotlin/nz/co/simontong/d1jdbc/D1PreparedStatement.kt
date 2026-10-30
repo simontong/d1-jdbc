@@ -59,7 +59,8 @@ class D1PreparedStatement(
 	connection: D1Connection,
 	sql: String,
 	returnGeneratedKeys: Boolean = false,
-) : D1Statement(connection), PreparedStatement {
+) : D1Statement(connection),
+	PreparedStatement {
 	override val alwaysReturnKeys = returnGeneratedKeys
 	private val preparedSql = PreparedSql(sql)
 	private val values = mutableMapOf<Int, BoundValue>()

@@ -575,7 +575,6 @@ open class D1Statement(
 	override fun isWrapperFor(iface: Class<*>): Boolean = iface.isInstance(this)
 }
 
-
 /** One or more whitespace characters. */
 private val WHITESPACE = Regex("""\s+""")
 

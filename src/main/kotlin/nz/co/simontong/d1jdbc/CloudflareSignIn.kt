@@ -182,8 +182,8 @@ internal class SignInCredentials(
 	 */
 	override fun rejected(code: Int, message: String): SQLException {
 		return SQLInvalidAuthorizationSpecException(
-			"Cloudflare turned down the sign-in for this account. Make sure you ticked this account on "
-				+ "Cloudflare's sign-in page. To sign in again, delete ${settings.tokenFile} and connect. ($message)",
+			"Cloudflare turned down the sign-in for this account. Make sure you ticked this account on " +
+				"Cloudflare's sign-in page. To sign in again, delete ${settings.tokenFile} and connect. ($message)",
 			"28000",
 			code,
 		)
@@ -268,8 +268,8 @@ internal class SignInCredentials(
 				deleteTokenFile()
 				tokens = null
 				throw SQLInvalidAuthorizationSpecException(
-					"Your Cloudflare sign-in has ended, as it was revoked or not used for too long. Connect again "
-						+ "to sign in.",
+					"Your Cloudflare sign-in has ended, as it was revoked or not used for too long. Connect again " +
+						"to sign in.",
 					"28000",
 					error,
 				)
@@ -299,8 +299,8 @@ internal class SignInCredentials(
 			HttpServer.create(InetSocketAddress(InetAddress.getByName(LOOPBACK_ADDRESS), 0), 0)
 		} catch (error: IOException) {
 			throw SQLNonTransientConnectionException(
-				"Could not open a local port for Cloudflare's sign-in to reply to. Check that a firewall allows "
-					+ "programs to listen on 127.0.0.1.",
+				"Could not open a local port for Cloudflare's sign-in to reply to. Check that a firewall allows " +
+					"programs to listen on 127.0.0.1.",
 				"08001",
 				error,
 			)
@@ -337,15 +337,19 @@ internal class SignInCredentials(
 	 * @return the page address
 	 */
 	private fun authorizeUri(redirectUri: String, challenge: String, state: String): URI {
-		return URI.create("${settings.signInBaseUri}/oauth2/auth?" + formText(mapOf(
-			"response_type" to "code",
-			"client_id" to settings.clientId,
-			"redirect_uri" to redirectUri,
-			"scope" to SCOPES.joinToString(" "),
-			"state" to state,
-			"code_challenge" to challenge,
-			"code_challenge_method" to "S256",
-		)))
+		return URI.create(
+			"${settings.signInBaseUri}/oauth2/auth?" + formText(
+				mapOf(
+					"response_type" to "code",
+					"client_id" to settings.clientId,
+					"redirect_uri" to redirectUri,
+					"scope" to SCOPES.joinToString(" "),
+					"state" to state,
+					"code_challenge" to challenge,
+					"code_challenge_method" to "S256",
+				),
+			),
+		)
 	}
 
 	/**
@@ -529,12 +533,14 @@ internal class SignInCredentials(
 	 * @throws SQLException when the file can't be written
 	 */
 	private fun writeTokenFile(saving: SignInTokens) {
-		val entry = JsonObject(mapOf(
-			"accessToken" to JsonPrimitive(saving.accessToken),
-			"refreshToken" to JsonPrimitive(saving.refreshToken),
-			"expiresAt" to JsonPrimitive(saving.expiresAt.epochSecond.toString()),
-			"scopes" to JsonPrimitive(saving.scopes.sorted().joinToString(" ")),
-		))
+		val entry = JsonObject(
+			mapOf(
+				"accessToken" to JsonPrimitive(saving.accessToken),
+				"refreshToken" to JsonPrimitive(saving.refreshToken),
+				"expiresAt" to JsonPrimitive(saving.expiresAt.epochSecond.toString()),
+				"scopes" to JsonPrimitive(saving.scopes.sorted().joinToString(" ")),
+			),
+		)
 		// Keep the sign-ins of other OAuth clients that share the file.
 		val json = JsonObject(otherClientsInFile() + (settings.clientId to entry))
 		var temp: Path? = null

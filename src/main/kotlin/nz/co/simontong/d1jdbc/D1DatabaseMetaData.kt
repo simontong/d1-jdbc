@@ -447,7 +447,13 @@ class D1DatabaseMetaData(
 		val keys = found.columns.filter { it.primaryKeyPosition > 0 }.sortedBy { it.primaryKeyPosition }
 		if (keys.isEmpty() && !found.withoutRowId) {
 			val rowId = listOf(
-				DatabaseMetaData.bestRowSession, "rowid", Types.BIGINT, "INTEGER", 19, null, 0,
+				DatabaseMetaData.bestRowSession,
+				"rowid",
+				Types.BIGINT,
+				"INTEGER",
+				19,
+				null,
+				0,
 				DatabaseMetaData.bestRowPseudo,
 			)
 			return rowsOf(ROW_ID_COLUMNS, listOf(rowId))
@@ -455,8 +461,14 @@ class D1DatabaseMetaData(
 		val rows = keys.map { column ->
 			val type = declaredType(column.declaredType)
 			listOf(
-				DatabaseMetaData.bestRowSession, column.name, type.sqlType, type.name, type.size, null,
-				type.decimalDigits, DatabaseMetaData.bestRowNotPseudo,
+				DatabaseMetaData.bestRowSession,
+				column.name,
+				type.sqlType,
+				type.name,
+				type.size,
+				null,
+				type.decimalDigits,
+				DatabaseMetaData.bestRowNotPseudo,
 			)
 		}
 		return rowsOf(ROW_ID_COLUMNS, rows)
@@ -872,7 +884,6 @@ class D1DatabaseMetaData(
 	/** @return an empty result, filled in once schema browsing is built */
 	override fun getProcedureColumns(p0: String?, p1: String?, p2: String?, p3: String?): ResultSet = emptyResult("PROCEDURE_CAT", "PROCEDURE_SCHEM", "PROCEDURE_NAME", "COLUMN_NAME", "COLUMN_TYPE", "DATA_TYPE", "TYPE_NAME", "PRECISION", "LENGTH", "SCALE", "RADIX", "NULLABLE", "REMARKS", "COLUMN_DEF", "SQL_DATA_TYPE", "SQL_DATETIME_SUB", "CHAR_OCTET_LENGTH", "ORDINAL_POSITION", "IS_NULLABLE", "SPECIFIC_NAME")
 
-
 	/**
 	 * Lists every D1 database the token can reach, asking Cloudflare again each time.
 	 *
@@ -883,22 +894,14 @@ class D1DatabaseMetaData(
 		return rowsOf(listOf("TABLE_CAT"), connection.databases(reload = true).map { listOf(it.name) })
 	}
 
-
 	/** @return an empty result, filled in once schema browsing is built */
 	override fun getColumnPrivileges(p0: String?, p1: String?, p2: String?, p3: String?): ResultSet = emptyResult("TABLE_CAT", "TABLE_SCHEM", "TABLE_NAME", "COLUMN_NAME", "GRANTOR", "GRANTEE", "PRIVILEGE", "IS_GRANTABLE")
 
 	/** @return an empty result, filled in once schema browsing is built */
 	override fun getTablePrivileges(p0: String?, p1: String?, p2: String?): ResultSet = emptyResult("TABLE_CAT", "TABLE_SCHEM", "TABLE_NAME", "GRANTOR", "GRANTEE", "PRIVILEGE", "IS_GRANTABLE")
 
-
 	/** @return an empty result, filled in once schema browsing is built */
 	override fun getVersionColumns(p0: String?, p1: String?, p2: String?): ResultSet = emptyResult("SCOPE", "COLUMN_NAME", "DATA_TYPE", "TYPE_NAME", "COLUMN_SIZE", "BUFFER_LENGTH", "DECIMAL_DIGITS", "PSEUDO_COLUMN")
-
-
-
-
-
-
 
 	/** @return true only for forward-only results */
 	override fun supportsResultSetType(p0: Int): Boolean = p0 == ResultSet.TYPE_FORWARD_ONLY
@@ -1014,7 +1017,6 @@ class D1DatabaseMetaData(
 	/** @return false */
 	override fun generatedKeyAlwaysReturned(): Boolean = false
 
-
 	private companion object {
 		/** The one schema D1 has. */
 		const val SCHEMA = "main"
@@ -1052,7 +1054,13 @@ class D1DatabaseMetaData(
 
 		/** Columns of [getBestRowIdentifier], in the order JDBC sets. */
 		val ROW_ID_COLUMNS = listOf(
-			"SCOPE", "COLUMN_NAME", "DATA_TYPE", "TYPE_NAME", "COLUMN_SIZE", "BUFFER_LENGTH", "DECIMAL_DIGITS",
+			"SCOPE",
+			"COLUMN_NAME",
+			"DATA_TYPE",
+			"TYPE_NAME",
+			"COLUMN_SIZE",
+			"BUFFER_LENGTH",
+			"DECIMAL_DIGITS",
 			"PSEUDO_COLUMN",
 		)
 

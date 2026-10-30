@@ -58,8 +58,11 @@ internal fun tokens(sql: String): List<Token> {
 		val char = sql[index]
 		when {
 			char.isWhitespace() -> index++
+
 			sql.startsWith("--", index) -> index = sql.indexOf('\n', index).let { if (it < 0) sql.length else it }
+
 			sql.startsWith("/*", index) -> index = sql.indexOf("*/", index + 2).let { if (it < 0) sql.length else it + 2 }
+
 			char == '"' || char == '`' || char == '[' -> {
 				val close = if (char == '[') ']' else char
 				val end = quoteEnd(sql, index, close)
@@ -67,11 +70,13 @@ internal fun tokens(sql: String): List<Token> {
 				found += Token(inner, TokenKind.QUOTED_NAME)
 				index = end + 1
 			}
+
 			char == '\'' -> {
 				val end = quoteEnd(sql, index, '\'')
 				found += Token(sql.substring(index, end + 1), TokenKind.OTHER)
 				index = end + 1
 			}
+
 			char.isLetter() || char == '_' -> {
 				var end = index
 				while (end < sql.length && (sql[end].isLetterOrDigit() || sql[end] == '_' || sql[end] == '$')) {
@@ -80,10 +85,12 @@ internal fun tokens(sql: String): List<Token> {
 				found += Token(sql.substring(index, end), TokenKind.WORD)
 				index = end
 			}
+
 			char in ",.*();" -> {
 				found += Token(char.toString(), TokenKind.SYMBOL)
 				index++
 			}
+
 			else -> {
 				found += Token(char.toString(), TokenKind.OTHER)
 				index++

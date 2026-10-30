@@ -95,15 +95,21 @@ class SqliteD1(server: StubD1Server) : AutoCloseable {
 			val changes = if (hasRows) 0 else prepared.updateCount
 			val lastRowId = sqlite.createStatement().use { it.executeQuery("select last_insert_rowid()").getLong(1) }
 			return buildJsonObject {
-				put("results", buildJsonObject {
-					put("columns", JsonArray(columns))
-					put("rows", JsonArray(rows))
-				})
+				put(
+					"results",
+					buildJsonObject {
+						put("columns", JsonArray(columns))
+						put("rows", JsonArray(rows))
+					},
+				)
 				put("success", true)
-				put("meta", buildJsonObject {
-					put("changes", changes)
-					put("last_row_id", lastRowId)
-				})
+				put(
+					"meta",
+					buildJsonObject {
+						put("changes", changes)
+						put("last_row_id", lastRowId)
+					},
+				)
 			}
 		}
 	}
@@ -117,10 +123,14 @@ class SqliteD1(server: StubD1Server) : AutoCloseable {
 	private fun jsonValue(value: Any?): JsonElement {
 		return when (value) {
 			null -> JsonNull
+
 			// D1 sends a whole REAL like 1.0 as 1, as found in live tests.
 			is Double -> if (value % 1.0 == 0.0 && value.isFinite()) JsonPrimitive(value.toLong()) else JsonPrimitive(value)
+
 			is Number -> JsonPrimitive(value)
+
 			is ByteArray -> JsonArray(value.map { JsonPrimitive(it.toInt() and 0xFF) })
+
 			else -> JsonPrimitive(value.toString())
 		}
 	}

@@ -44,8 +44,10 @@ class D1Connection(
 
 	@Volatile
 	private var closed = false
+
 	@Volatile
 	private var warnings: SQLWarning? = null
+
 	@Volatile
 	private var readOnly = settings.readOnly
 

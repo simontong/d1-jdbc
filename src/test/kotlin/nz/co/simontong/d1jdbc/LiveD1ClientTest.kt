@@ -100,8 +100,8 @@ class LiveD1ClientTest {
 				assertEquals(1, insert.executeUpdate())
 
 				val select = connection.prepareStatement(
-					"select cast(big as text) as big_text, typeof(loose) as loose_type, loose / 2 as half, r, t, b, d, "
-						+ "datetime(d) as d_parsed from live_values where id = ? and big = ?",
+					"select cast(big as text) as big_text, typeof(loose) as loose_type, loose / 2 as half, r, t, b, d, " +
+						"datetime(d) as d_parsed from live_values where id = ? and big = ?",
 				)
 				select.setInt(1, 1)
 				select.setLong(2, Long.MAX_VALUE)
@@ -143,8 +143,8 @@ class LiveD1ClientTest {
 			statement.executeUpdate("drop table live_gone")
 			statement.executeUpdate("create table live_parent (id integer primary key, code text not null unique)")
 			statement.executeUpdate(
-				"create table live_child (id integer constraint pk_live primary key, "
-					+ "pid integer constraint fk_live references live_parent(id) on delete cascade)",
+				"create table live_child (id integer constraint pk_live primary key, " +
+					"pid integer constraint fk_live references live_parent(id) on delete cascade)",
 			)
 			try {
 				val metaData = connection.metaData

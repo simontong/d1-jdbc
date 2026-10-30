@@ -66,10 +66,12 @@ class D1ValuesTest {
 		}
 
 		assertEquals(
-			Json.parseToJsonElement("""
+			Json.parseToJsonElement(
+				"""
 				{"sql":"insert into t values (cast(?1 as integer), ?, ?, cast(?4 as integer), ?, ?, cast(?7 as integer))",
 				"params":["9223372036854775807","hello",2.5,"1",[1,2,255],null,"-3"]}
-			"""),
+			""",
+			),
 			sentJson(),
 		)
 	}
@@ -90,10 +92,12 @@ class D1ValuesTest {
 		}
 
 		assertEquals(
-			Json.parseToJsonElement("""
+			Json.parseToJsonElement(
+				"""
 				{"sql":"select cast(?2 as integer), '?' as q, \"?\", ?1, ? /* ? */ -- ?\nwhere cast(?2 as integer) > 0",
 				"params":["one","5","three"]}
-			"""),
+			""",
+			),
 			sentJson(),
 		)
 	}
@@ -165,10 +169,12 @@ class D1ValuesTest {
 		}
 
 		assertEquals(
-			Json.parseToJsonElement("""
+			Json.parseToJsonElement(
+				"""
 				{"sql":"insert into t values (?, ?, ?, ?, ?, ?)",
 				"params":["2026-10-29","10:11:12","2026-10-29 10:11:12.345","2026-10-29 10:11:12","2026-10-29 10:11:12",null]}
-			"""),
+			""",
+			),
 			sentJson(),
 		)
 	}
@@ -204,11 +210,13 @@ class D1ValuesTest {
 		}
 
 		assertEquals(
-			Json.parseToJsonElement("""
+			Json.parseToJsonElement(
+				"""
 				{"sql":"select cast(?1 as integer), cast(?2 as integer), cast(?3 as integer), cast(?4 as integer), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?",
 				"params":["42","7","-9223372036854775808","1",123456789012345678901234567890,2.5,1.5,1.10,"text","c",[9],null,
 				"2026-10-29","10:11:12.5","2026-10-29 10:11:12","2026-10-29 10:11:12","2026-10-29 10:11:12+13:00"]}
-			"""),
+			""",
+			),
 			sentJson(),
 		)
 	}
@@ -233,9 +241,11 @@ class D1ValuesTest {
 		}
 
 		assertEquals(
-			Json.parseToJsonElement("""
+			Json.parseToJsonElement(
+				"""
 				{"sql":"select cast(?1 as integer), ?, ?, cast(?4 as integer), ?, ?","params":["5","3",2.5,"1",1.5,null]}
-			"""),
+			""",
+			),
 			sentJson(),
 		)
 	}
@@ -258,10 +268,12 @@ class D1ValuesTest {
 		}
 
 		assertEquals(
-			Json.parseToJsonElement("""
+			Json.parseToJsonElement(
+				"""
 				{"sql":"select ?, ?, ?, ?, ?, ?, ?",
 				"params":[[1,2,3],[1,2],"long text","long","ascii","clob","https://example.com/a"]}
-			"""),
+			""",
+			),
 			sentJson(),
 		)
 	}
@@ -396,12 +408,15 @@ class D1ValuesTest {
 	/** Checks that a prepared batch sends each set of values in one request. */
 	@Test
 	fun `sends each set of values in a prepared batch`() {
-		server.respond(200, """
+		server.respond(
+			200,
+			"""
 			{"result":[
 			{"results":{"columns":[],"rows":[]},"success":true,"meta":{"changes":1,"last_row_id":1}},
 			{"results":{"columns":[],"rows":[]},"success":true,"meta":{"changes":1,"last_row_id":2}}
 			],"errors":[],"messages":[],"success":true}
-		""")
+		""",
+		)
 
 		val counts = server.connect().use { connection ->
 			val statement = connection.prepareStatement("insert into t values (?, ?)")
@@ -416,12 +431,14 @@ class D1ValuesTest {
 
 		assertEquals(listOf(1, 1), counts.toList())
 		assertEquals(
-			Json.parseToJsonElement("""
+			Json.parseToJsonElement(
+				"""
 				{"batch":[
 				{"sql":"insert into t values (cast(?1 as integer), ?)","params":["1","a"]},
 				{"sql":"insert into t values (?, ?)","params":[1.5,"b"]}
 				]}
-			"""),
+			""",
+			),
 			sentJson(),
 		)
 	}

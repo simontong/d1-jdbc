@@ -9,6 +9,19 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
+// Metadata numbers read back as Long, as getObject returns Long for whole numbers.
+private val BIGINT = Types.BIGINT.toLong()
+private val VARCHAR = Types.VARCHAR.toLong()
+private val BLOB = Types.BLOB.toLong()
+private val DOUBLE = Types.DOUBLE.toLong()
+private val NUMERIC = Types.NUMERIC.toLong()
+private val OTHER_INDEX = DatabaseMetaData.tableIndexOther.toLong()
+private val NO_ACTION = DatabaseMetaData.importedKeyNoAction.toLong()
+private val CASCADE = DatabaseMetaData.importedKeyCascade.toLong()
+private val SET_NULL = DatabaseMetaData.importedKeySetNull.toLong()
+private val NOT_PSEUDO = DatabaseMetaData.bestRowNotPseudo.toLong()
+private val PSEUDO = DatabaseMetaData.bestRowPseudo.toLong()
+
 /**
  * Tests schema browsing through JDBC metadata, against a SQLite database standing in for D1.
  */
@@ -19,28 +32,15 @@ class D1SchemaTest {
 	init {
 		database.setUp(
 			"create table _cf_KV (key text primary key, value blob) without rowid",
-			"create table parent (id integer primary key autoincrement, code text not null unique, "
-				+ "note varchar(20) default 'x', g integer generated always as (id * 2) virtual)",
-			"create table child (a integer, b integer, pid integer references parent(id) on delete cascade, "
-				+ "primary key (a, b), foreign key (a) references parent(id))",
+			"create table parent (id integer primary key autoincrement, code text not null unique, " +
+				"note varchar(20) default 'x', g integer generated always as (id * 2) virtual)",
+			"create table child (a integer, b integer, pid integer references parent(id) on delete cascade, " +
+				"primary key (a, b), foreign key (a) references parent(id))",
 			"create index child_b on child(b desc) where b > 0",
 			"create view v as select id from parent",
 			"create temp table scratch (x)",
 		)
 	}
-
-	// Metadata numbers read back as Long, as getObject returns Long for whole numbers.
-	private val BIGINT = Types.BIGINT.toLong()
-	private val VARCHAR = Types.VARCHAR.toLong()
-	private val BLOB = Types.BLOB.toLong()
-	private val DOUBLE = Types.DOUBLE.toLong()
-	private val NUMERIC = Types.NUMERIC.toLong()
-	private val OTHER_INDEX = DatabaseMetaData.tableIndexOther.toLong()
-	private val NO_ACTION = DatabaseMetaData.importedKeyNoAction.toLong()
-	private val CASCADE = DatabaseMetaData.importedKeyCascade.toLong()
-	private val SET_NULL = DatabaseMetaData.importedKeySetNull.toLong()
-	private val NOT_PSEUDO = DatabaseMetaData.bestRowNotPseudo.toLong()
-	private val PSEUDO = DatabaseMetaData.bestRowPseudo.toLong()
 
 	/** Stops the stub server and closes the database after each test. */
 	@AfterTest
@@ -160,7 +160,13 @@ class D1SchemaTest {
 	fun `lists foreign keys from both ends`() {
 		database.setUp("create table remark (pid integer references parent on update set null)")
 		val columns = arrayOf(
-			"PKTABLE_NAME", "PKCOLUMN_NAME", "FKTABLE_NAME", "FKCOLUMN_NAME", "KEY_SEQ", "UPDATE_RULE", "DELETE_RULE",
+			"PKTABLE_NAME",
+			"PKCOLUMN_NAME",
+			"FKTABLE_NAME",
+			"FKCOLUMN_NAME",
+			"KEY_SEQ",
+			"UPDATE_RULE",
+			"DELETE_RULE",
 		)
 
 		server.connect().use { connection ->
@@ -209,9 +215,9 @@ class D1SchemaTest {
 	@Test
 	fun `names keys the table's SQL names`() {
 		database.setUp(
-			"create table named (id integer constraint \"Named key\" primary key, "
-				+ "pid integer constraint fk_pid references parent(id), a integer, b integer check (a <> b), "
-				+ "constraint fk_ab foreign key (a, b) references child (a, b), foreign key (b) references parent)",
+			"create table named (id integer constraint \"Named key\" primary key, " +
+				"pid integer constraint fk_pid references parent(id), a integer, b integer check (a <> b), " +
+				"constraint fk_ab foreign key (a, b) references child (a, b), foreign key (b) references parent)",
 			"create table pair (x, y, constraint pk_pair primary key (x, y))",
 		)
 
@@ -320,8 +326,10 @@ class D1SchemaTest {
 	/** Checks that SQLite's affinity rules decide each declared type's JDBC type. */
 	@Test
 	fun `maps declared types by SQLite's affinity rules`() {
-		database.setUp("create table types (a bigint, b nvarchar(10), c clob, d blob, e, f double precision, g float, "
-			+ "h decimal(10,2), i boolean, j datetime, k charint, l floating point)")
+		database.setUp(
+			"create table types (a bigint, b nvarchar(10), c clob, d blob, e, f double precision, g float, " +
+				"h decimal(10,2), i boolean, j datetime, k charint, l floating point)",
+		)
 
 		server.connect().use { connection ->
 			val columns = connection.metaData.getColumns(null, null, "types", null)

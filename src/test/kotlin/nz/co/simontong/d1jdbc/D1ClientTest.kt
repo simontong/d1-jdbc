@@ -8,8 +8,8 @@ import java.sql.SQLInvalidAuthorizationSpecException
 import java.sql.SQLNonTransientConnectionException
 import java.sql.SQLSyntaxErrorException
 import java.sql.SQLTimeoutException
-import java.sql.SQLTransientException
 import java.sql.SQLTransientConnectionException
+import java.sql.SQLTransientException
 import java.time.Duration
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -40,10 +40,13 @@ class D1ClientTest {
 	/** Checks that the client runs one statement and returns its rows. */
 	@Test
 	fun `runs one statement and returns its rows`() {
-		server.respond(200, """
+		server.respond(
+			200,
+			"""
 			{"result":[{"results":{"columns":["id","name"],"rows":[[1,"a"],[2,"b"]]},"success":true,
 			"meta":{"changes":0,"last_row_id":7}}],"errors":[],"messages":[],"success":true}
-		""")
+		""",
+		)
 
 		val results = client.execute("db456", listOf(D1Query("select id, name from t where id > ?", listOf(JsonPrimitive(0)))))
 
@@ -69,25 +72,33 @@ class D1ClientTest {
 	/** Checks that the client runs several statements as one batch. */
 	@Test
 	fun `runs several statements as one batch`() {
-		server.respond(200, """
+		server.respond(
+			200,
+			"""
 			{"result":[
 			{"results":{"columns":[],"rows":[]},"success":true,"meta":{"changes":1,"last_row_id":5}},
 			{"results":{"columns":["n"],"rows":[[5]]},"success":true,"meta":{"changes":0,"last_row_id":5}}
 			],"errors":[],"messages":[],"success":true}
-		""")
+		""",
+		)
 
-		val results = client.execute("db456", listOf(
-			D1Query("insert into t(name) values (?)", listOf(JsonPrimitive("x"))),
-			D1Query("select count(*) as n from t"),
-		))
+		val results = client.execute(
+			"db456",
+			listOf(
+				D1Query("insert into t(name) values (?)", listOf(JsonPrimitive("x"))),
+				D1Query("select count(*) as n from t"),
+			),
+		)
 
 		assertEquals(
-			Json.parseToJsonElement("""
+			Json.parseToJsonElement(
+				"""
 				{"batch":[
 				{"sql":"insert into t(name) values (?)","params":["x"]},
 				{"sql":"select count(*) as n from t","params":[]}
 				]}
-			"""),
+			""",
+			),
 			Json.parseToJsonElement(server.requests.single().body),
 		)
 		assertEquals(listOf(1L, 0L), results.map { it.changes })
@@ -97,10 +108,13 @@ class D1ClientTest {
 	/** Checks that the client reports a broken constraint as an integrity error. */
 	@Test
 	fun `reports a broken constraint as an integrity error`() {
-		server.respond(400, """
+		server.respond(
+			400,
+			"""
 			{"messages":[],"result":[],"success":false,"errors":[{"code":7500,
 			"message":"UNIQUE constraint failed: t.id: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_PRIMARYKEY)"}]}
-		""")
+		""",
+		)
 
 		val error = assertFailsWith<SQLIntegrityConstraintViolationException> {
 			client.execute("db456", listOf(D1Query("insert into t(id) values (1)")))
@@ -117,10 +131,13 @@ class D1ClientTest {
 	/** Checks that the client reports bad SQL as a syntax error. */
 	@Test
 	fun `reports bad SQL as a syntax error`() {
-		server.respond(400, """
+		server.respond(
+			400,
+			"""
 			{"messages":[],"result":[],"success":false,"errors":[{"code":7500,
 			"message":"near \"selec\": syntax error at offset 0: SQLITE_ERROR"}]}
-		""")
+		""",
+		)
 
 		val error = assertFailsWith<SQLSyntaxErrorException> {
 			client.execute("db456", listOf(D1Query("selec 1")))
@@ -133,9 +150,12 @@ class D1ClientTest {
 	/** Checks that the client reports other SQL failures as a general database error. */
 	@Test
 	fun `reports other SQL failures as a general database error`() {
-		server.respond(400, """
+		server.respond(
+			400,
+			"""
 			{"messages":[],"result":[],"success":false,"errors":[{"code":7500,"message":"not authorized: SQLITE_AUTH"}]}
-		""")
+		""",
+		)
 
 		val error = assertFailsWith<SQLException> {
 			client.execute("db456", listOf(D1Query("pragma query_only = 1")))
@@ -149,9 +169,12 @@ class D1ClientTest {
 	/** Checks that the client tells the user to check the token when Cloudflare rejects it. */
 	@Test
 	fun `tells the user to check the token when Cloudflare rejects it`() {
-		server.respond(401, """
+		server.respond(
+			401,
+			"""
 			{"result":null,"success":false,"errors":[{"code":10000,"message":"Authentication error"}],"messages":[]}
-		""")
+		""",
+		)
 
 		val error = assertFailsWith<SQLInvalidAuthorizationSpecException> {
 			client.execute("db456", listOf(D1Query("select 1")))
@@ -168,18 +191,21 @@ class D1ClientTest {
 	/** Checks that the client tells the user when the database does not exist. */
 	@Test
 	fun `tells the user when the database does not exist`() {
-		server.respond(404, """
+		server.respond(
+			404,
+			"""
 			{"messages":[],"result":null,"success":false,"errors":[{"code":7404,
 			"message":"The database db456 could not be found"}]}
-		""")
+		""",
+		)
 
 		val error = assertFailsWith<SQLException> {
 			client.execute("db456", listOf(D1Query("select 1")))
 		}
 
 		assertEquals(
-			"Cloudflare could not find this D1 database. Check the account ID and database ID. "
-				+ "(The database db456 could not be found)",
+			"Cloudflare could not find this D1 database. Check the account ID and database ID. " +
+				"(The database db456 could not be found)",
 			error.message,
 		)
 		assertEquals("3D000", error.sqlState)
@@ -197,8 +223,8 @@ class D1ClientTest {
 		}
 
 		assertEquals(
-			"Cloudflare is limiting requests, either because your Cloudflare user made too many API calls "
-				+ "or because the database is overloaded. Try again in 73 seconds.",
+			"Cloudflare is limiting requests, either because your Cloudflare user made too many API calls " +
+				"or because the database is overloaded. Try again in 73 seconds.",
 			error.message,
 		)
 		assertEquals("HY000", error.sqlState)
@@ -326,8 +352,8 @@ class D1ClientTest {
 		}
 
 		assertEquals(
-			"Lost the connection to Cloudflare's API before it replied. Check your network connection and try again. "
-				+ "A statement that changes data may or may not have been saved.",
+			"Lost the connection to Cloudflare's API before it replied. Check your network connection and try again. " +
+				"A statement that changes data may or may not have been saved.",
 			error.message,
 		)
 		assertEquals("08S01", error.sqlState)

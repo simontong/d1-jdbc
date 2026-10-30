@@ -311,8 +311,8 @@ private fun readForeignKeys(result: D1Result?, named: List<NamedForeignKey>): Li
 
 			// The PRAGMA has no names, so match a named key by its parent and child columns.
 			val match = unused.firstOrNull { key ->
-				key.parentTable.equals(parentTable, ignoreCase = true)
-					&& key.columns.map { it.lowercase() } == columns.map { it.first.lowercase() }
+				key.parentTable.equals(parentTable, ignoreCase = true) &&
+					key.columns.map { it.lowercase() } == columns.map { it.first.lowercase() }
 			}
 			match?.let { unused.remove(it) }
 			SchemaForeignKey(

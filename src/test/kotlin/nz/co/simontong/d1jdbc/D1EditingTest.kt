@@ -18,8 +18,8 @@ class D1EditingTest {
 
 	init {
 		database.setUp(
-			"create table item (id integer primary key, name text not null, price real, "
-				+ "doubled real generated always as (price * 2) virtual)",
+			"create table item (id integer primary key, name text not null, price real, " +
+				"doubled real generated always as (price * 2) virtual)",
 			"insert into item (id, name, price) values (1, 'tea', 4), (2, 'cake', 5.5)",
 			"create table loose (x text)",
 			"insert into loose values ('a')",
@@ -94,9 +94,15 @@ class D1EditingTest {
 			assertEquals(true, metaData.isAutoIncrement(3))
 
 			val loose = connection.createStatement().executeQuery("select rowid, * from loose").metaData
-			assertEquals(listOf("rowid", "loose", false, true), listOf(
-				loose.getColumnName(1), loose.getTableName(1), loose.isWritable(1), loose.isAutoIncrement(1),
-			))
+			assertEquals(
+				listOf("rowid", "loose", false, true),
+				listOf(
+					loose.getColumnName(1),
+					loose.getTableName(1),
+					loose.isWritable(1),
+					loose.isAutoIncrement(1),
+				),
+			)
 			assertEquals(listOf("x", "loose", true), listOf(loose.getColumnName(2), loose.getTableName(2), loose.isWritable(2)))
 		}
 	}
@@ -195,8 +201,8 @@ class D1EditingTest {
 
 			assertEquals("", rows.metaData.getTableName(1))
 			assertEquals(
-				"Could not read the schema, so the columns' tables are unknown. Cloudflare's API failed with HTTP 500. "
-					+ "Try again shortly.",
+				"Could not read the schema, so the columns' tables are unknown. Cloudflare's API failed with HTTP 500. " +
+					"Try again shortly.",
 				rows.warnings.message,
 			)
 			rows.next()

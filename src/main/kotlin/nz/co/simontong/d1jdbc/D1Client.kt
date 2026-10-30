@@ -124,7 +124,6 @@ class D1Client internal constructor(
 		requestTimeout: Duration = Duration.ofSeconds(60),
 	) : this(accountId, ApiTokenCredentials(apiToken), baseUri, requestTimeout)
 
-
 	/**
 	 * Runs statements on a D1 database and returns one result per statement.
 	 *
@@ -336,8 +335,8 @@ class D1Client internal constructor(
 			val wait = response.headers().firstValue("retry-after").orElse(null)?.trim()?.toLongOrNull()
 			val advice = if (wait != null) "Try again in $wait seconds." else "Wait a few minutes and try again."
 			throw SQLTransientException(
-				"Cloudflare is limiting requests, either because your Cloudflare user made too many API calls "
-					+ "or because the database is overloaded. $advice",
+				"Cloudflare is limiting requests, either because your Cloudflare user made too many API calls " +
+					"or because the database is overloaded. $advice",
 				"HY000",
 			)
 		}
@@ -516,10 +515,12 @@ class D1Client internal constructor(
 	 * @return JSON object with `sql` and `params`
 	 */
 	private fun statementJson(statement: D1Query): JsonObject {
-		return JsonObject(mapOf(
-			"sql" to JsonPrimitive(statement.sql),
-			"params" to JsonArray(statement.params),
-		))
+		return JsonObject(
+			mapOf(
+				"sql" to JsonPrimitive(statement.sql),
+				"params" to JsonArray(statement.params),
+			),
+		)
 	}
 
 	/**
@@ -642,8 +643,8 @@ class D1Client internal constructor(
 			val seconds = BigDecimal(timeout.toMillis()).movePointLeft(3).stripTrailingZeros().toPlainString()
 			val unit = if (seconds == "1") "second" else "seconds"
 			return SQLTimeoutException(
-				"Cloudflare did not reply within $seconds $unit. A statement that changes data may or may "
-					+ "not have been saved.",
+				"Cloudflare did not reply within $seconds $unit. A statement that changes data may or may " +
+					"not have been saved.",
 				"HYT00",
 				cause,
 			)
@@ -707,21 +708,25 @@ class D1Client internal constructor(
 		private fun networkError(cause: Throwable, timeout: Duration, cancellation: Cancellation?): SQLException {
 			return when {
 				cancellation?.cancelled == true || cause is CancellationException -> cancelled(cause)
+
 				cause is ReplyTooLargeException -> SQLNonTransientConnectionException(
-					"Cloudflare's reply was larger than ${MAX_REPLY_BYTES / 1_000_000} MB, which is more than the "
-						+ "driver will hold in memory. Add a LIMIT to the query.",
+					"Cloudflare's reply was larger than ${MAX_REPLY_BYTES / 1_000_000} MB, which is more than the " +
+						"driver will hold in memory. Add a LIMIT to the query.",
 					"HY000",
 					cause,
 				)
+
 				cause is HttpTimeoutException -> timedOut(timeout, cause)
+
 				cause is ConnectException -> SQLTransientConnectionException(
 					"Could not reach Cloudflare's API. Check your network connection.",
 					"08001",
 					cause,
 				)
+
 				else -> SQLTransientConnectionException(
-					"Lost the connection to Cloudflare's API before it replied. Check your network connection and try "
-						+ "again. A statement that changes data may or may not have been saved.",
+					"Lost the connection to Cloudflare's API before it replied. Check your network connection and try " +
+						"again. A statement that changes data may or may not have been saved.",
 					"08S01",
 					cause,
 				)

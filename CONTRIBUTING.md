@@ -41,8 +41,6 @@ The tests use a stub server and an in-memory SQLite database, so they do not nee
 - Keep each comment line to 100 characters or fewer.
 - [ktlint](https://pinterest.github.io/ktlint/) checks the style during the build. To fix most problems, run `./gradlew ktlintFormat`.
 
-The file `config/ktlint/baseline.xml` lists style problems in code that was written before ktlint was added. Do not add new entries to it.
-
 ## Licence
 
 By contributing, you agree that your contribution is licensed under the [MIT licence](LICENSE).

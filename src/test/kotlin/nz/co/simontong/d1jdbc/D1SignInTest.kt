@@ -180,11 +180,13 @@ class D1SignInTest {
 	fun `refreshes the token before it ends`() {
 		val start = Instant.parse("2026-10-31T00:00:00Z")
 		var now = start
-		val credentials = credentials(clock = object : Clock() {
-			override fun getZone(): ZoneId = ZoneOffset.UTC
-			override fun withZone(zone: ZoneId): Clock = this
-			override fun instant(): Instant = now
-		})
+		val credentials = credentials(
+			clock = object : Clock() {
+				override fun getZone(): ZoneId = ZoneOffset.UTC
+				override fun withZone(zone: ZoneId): Clock = this
+				override fun instant(): Instant = now
+			},
+		)
 		credentials.signInWithBrowser()
 		assertEquals("access-1", credentials.token())
 		now = start.plusSeconds(3500)
@@ -358,8 +360,8 @@ class D1SignInTest {
 		val error = assertFailsWith<SQLException> { api.connect("jdbc:d1://all") }
 
 		assertEquals(
-			"An API token needs your Cloudflare account ID. Put it in the Account field, or in the URL like "
-				+ "jdbc:d1://<account id>.",
+			"An API token needs your Cloudflare account ID. Put it in the Account field, or in the URL like " +
+				"jdbc:d1://<account id>.",
 			error.message,
 		)
 	}

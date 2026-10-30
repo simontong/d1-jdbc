@@ -75,16 +75,16 @@ class D1Driver : Driver {
 		val accounts = signIn.accounts { D1Client("", signIn, settings.apiBaseUrl).listAccounts() }
 		if (accounts.isEmpty()) {
 			throw SQLInvalidAuthorizationSpecException(
-				"The Cloudflare sign-in reaches no accounts. Delete ${settings.tokenFile}, connect, and tick at least "
-					+ "one account on Cloudflare's page. An account admin may also have turned off third-party apps.",
+				"The Cloudflare sign-in reaches no accounts. Delete ${settings.tokenFile}, connect, and tick at least " +
+					"one account on Cloudflare's page. An account admin may also have turned off third-party apps.",
 				"28000",
 			)
 		}
 		val chosen = accounts.filter { settings.accountId == null || it.id.equals(settings.accountId, ignoreCase = true) }
 		if (chosen.isEmpty()) {
 			throw SQLInvalidAuthorizationSpecException(
-				"The Cloudflare sign-in doesn't include account ${settings.accountId}. Remove the account ID from the URL, "
-					+ "or delete ${settings.tokenFile}, connect, and tick that account on Cloudflare's page.",
+				"The Cloudflare sign-in doesn't include account ${settings.accountId}. Remove the account ID from the URL, " +
+					"or delete ${settings.tokenFile}, connect, and tick that account on Cloudflare's page.",
 				"28000",
 			)
 		}
@@ -95,8 +95,8 @@ class D1Driver : Driver {
 		val connection = D1Connection(clients, if (canWrite) settings else settings.copy(readOnly = true))
 		if (!canWrite) {
 			connection.addWarning(
-				"You signed in without D1 write permission, so this connection is read-only. To change data, delete "
-					+ "${settings.tokenFile}, connect, and keep D1 Write on Cloudflare's page.",
+				"You signed in without D1 write permission, so this connection is read-only. To change data, delete " +
+					"${settings.tokenFile}, connect, and keep D1 Write on Cloudflare's page.",
 			)
 		}
 		return connection
@@ -297,15 +297,15 @@ data class D1Settings(
 			}
 			if (auth == D1Auth.TOKEN && apiToken.isBlank()) {
 				throw SQLNonTransientConnectionException(
-					"No Cloudflare API token was given. Enter it as the connection password, or add ?auth=browser to the "
-						+ "URL to sign in with Cloudflare.",
+					"No Cloudflare API token was given. Enter it as the connection password, or add ?auth=browser to the " +
+						"URL to sign in with Cloudflare.",
 					"28000",
 				)
 			}
 			if (auth == D1Auth.TOKEN && accountId.isEmpty()) {
 				throw SQLNonTransientConnectionException(
-					"An API token needs your Cloudflare account ID. Put it in the Account field, or in the URL like "
-						+ "jdbc:d1://<account id>.",
+					"An API token needs your Cloudflare account ID. Put it in the Account field, or in the URL like " +
+						"jdbc:d1://<account id>.",
 					"08001",
 				)
 			}

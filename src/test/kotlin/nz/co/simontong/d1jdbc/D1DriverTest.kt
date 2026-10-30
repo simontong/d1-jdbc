@@ -42,10 +42,13 @@ class D1DriverTest {
 	/** Checks that the driver runs a query and reads its rows. */
 	@Test
 	fun `runs a query and reads its rows`() {
-		server.respond(200, """
+		server.respond(
+			200,
+			"""
 			{"result":[{"results":{"columns":["id","name","score"],"rows":[[1,"a",2.5],[2,null,3]]},"success":true,
 			"meta":{"changes":0,"last_row_id":0}}],"errors":[],"messages":[],"success":true}
-		""")
+		""",
+		)
 
 		connect().use { connection ->
 			connection.createStatement().use { statement ->
@@ -150,8 +153,8 @@ class D1DriverTest {
 		}
 
 		assertEquals(
-			"No Cloudflare API token was given. Enter it as the connection password, or add ?auth=browser to the URL to "
-				+ "sign in with Cloudflare.",
+			"No Cloudflare API token was given. Enter it as the connection password, or add ?auth=browser to the URL to " +
+				"sign in with Cloudflare.",
 			error.message,
 		)
 	}
@@ -168,10 +171,13 @@ class D1DriverTest {
 	/** Checks that the driver returns the changed-row count for an update. */
 	@Test
 	fun `returns the changed row count for an update`() {
-		server.respond(200, """
+		server.respond(
+			200,
+			"""
 			{"result":[{"results":{"columns":[],"rows":[]},"success":true,"meta":{"changes":3,"last_row_id":3}}],
 			"errors":[],"messages":[],"success":true}
-		""")
+		""",
+		)
 
 		val changed = connect().use { it.createStatement().executeUpdate("update t set name = 'x'") }
 
@@ -181,10 +187,13 @@ class D1DriverTest {
 	/** Checks that the driver refuses to treat an update as a query. */
 	@Test
 	fun `refuses to treat an update as a query`() {
-		server.respond(200, """
+		server.respond(
+			200,
+			"""
 			{"result":[{"results":{"columns":[],"rows":[]},"success":true,"meta":{"changes":1,"last_row_id":1}}],
 			"errors":[],"messages":[],"success":true}
-		""")
+		""",
+		)
 
 		val error = assertFailsWith<SQLException> {
 			connect().use { it.createStatement().executeQuery("delete from t where id = 1") }
@@ -196,12 +205,15 @@ class D1DriverTest {
 	/** Checks that the driver walks through every result of SQL with several statements. */
 	@Test
 	fun `walks through every result of several statements`() {
-		server.respond(200, """
+		server.respond(
+			200,
+			"""
 			{"result":[
 			{"results":{"columns":[],"rows":[]},"success":true,"meta":{"changes":2,"last_row_id":2}},
 			{"results":{"columns":["n"],"rows":[[2]]},"success":true,"meta":{"changes":0,"last_row_id":2}}
 			],"errors":[],"messages":[],"success":true}
-		""")
+		""",
+		)
 
 		connect().use { connection ->
 			val statement = connection.createStatement()
@@ -257,10 +269,13 @@ class D1DriverTest {
 	/** Checks that rollback does nothing when no change was saved, as after a failed statement. */
 	@Test
 	fun `rolls back nothing when no change was saved`() {
-		server.respond(400, """
+		server.respond(
+			400,
+			"""
 			{"messages":[],"result":[],"success":false,"errors":[{"code":7500,
 			"message":"cannot INSERT into generated column \"g\": SQLITE_ERROR"}]}
-		""")
+		""",
+		)
 
 		connect().use { connection ->
 			connection.autoCommit = false
@@ -371,10 +386,13 @@ class D1DriverTest {
 	/** Checks that a read-only connection still runs reads. */
 	@Test
 	fun `runs reads on a read-only connection`() {
-		server.respond(200, """
+		server.respond(
+			200,
+			"""
 			{"result":[{"results":{"columns":["a"],"rows":[]},"success":true,"meta":{"changes":0,"last_row_id":0}}],
 			"errors":[],"messages":[],"success":true}
-		""")
+		""",
+		)
 		val reads = listOf(
 			"select * from t",
 			"SELECT 'delete from t' AS note",
@@ -421,12 +439,15 @@ class D1DriverTest {
 	/** Checks that the driver sends a batch in one request and returns each count. */
 	@Test
 	fun `sends a batch in one request and returns each count`() {
-		server.respond(200, """
+		server.respond(
+			200,
+			"""
 			{"result":[
 			{"results":{"columns":[],"rows":[]},"success":true,"meta":{"changes":1,"last_row_id":1}},
 			{"results":{"columns":[],"rows":[]},"success":true,"meta":{"changes":4,"last_row_id":1}}
 			],"errors":[],"messages":[],"success":true}
-		""")
+		""",
+		)
 
 		val counts = connect().use { connection ->
 			val statement = connection.createStatement()
@@ -437,9 +458,11 @@ class D1DriverTest {
 
 		assertEquals(listOf(1, 4), counts.toList())
 		assertEquals(
-			Json.parseToJsonElement("""
+			Json.parseToJsonElement(
+				"""
 				{"batch":[{"sql":"insert into t values (1)","params":[]},{"sql":"update t set a = 2","params":[]}]}
-			"""),
+			""",
+			),
 			Json.parseToJsonElement(server.requests.single().body),
 		)
 	}
@@ -447,10 +470,13 @@ class D1DriverTest {
 	/** Checks that a failed batch says nothing was saved. */
 	@Test
 	fun `says nothing was saved when a batch fails`() {
-		server.respond(400, """
+		server.respond(
+			400,
+			"""
 			{"messages":[],"result":[],"success":false,"errors":[{"code":7500,
 			"message":"UNIQUE constraint failed: t.id: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_PRIMARYKEY)"}]}
-		""")
+		""",
+		)
 
 		val error = assertFailsWith<BatchUpdateException> {
 			connect().use { connection ->
@@ -462,8 +488,8 @@ class D1DriverTest {
 		}
 
 		assertEquals(
-			"The batch failed and D1 saved none of it. "
-				+ "UNIQUE constraint failed: t.id: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_PRIMARYKEY)",
+			"The batch failed and D1 saved none of it. " +
+				"UNIQUE constraint failed: t.id: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_PRIMARYKEY)",
 			error.message,
 		)
 		assertEquals("23000", error.sqlState)
@@ -500,10 +526,13 @@ class D1DriverTest {
 	 */
 	@Test
 	fun `confirms a live connection by running a query`() {
-		server.respond(200, """
+		server.respond(
+			200,
+			"""
 			{"result":[{"results":{"columns":["1"],"rows":[[1]]},"success":true,"meta":{"changes":0,"last_row_id":0}}],
 			"errors":[],"messages":[],"success":true}
-		""")
+		""",
+		)
 
 		connect().use { connection ->
 			assertTrue(connection.isValid(5))
