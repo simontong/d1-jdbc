@@ -1,5 +1,10 @@
 package nz.co.simontong.d1jdbc
 
+import java.sql.SQLSyntaxErrorException
+
+/** The highest placeholder number SQLite allows, from https://sqlite.org/limits.html. */
+private const val MAX_PARAMETER_NUMBER = 32766
+
 /** A `?` or `?NNN` placeholder, or text that can't hold one. */
 private val PLACEHOLDER_OR_QUOTED = Regex("""${QUOTED_OR_COMMENT.pattern}|\?(\d*)""")
 
@@ -34,7 +39,13 @@ internal class PreparedSql(
 			.filter { it.value.startsWith("?") }
 			.map { match ->
 				val digits = match.value.drop(1)
-				val number = if (digits.isEmpty()) highest + 1 else digits.toInt()
+				val number = if (digits.isEmpty()) highest + 1 else digits.toIntOrNull() ?: Int.MAX_VALUE
+				if (number > MAX_PARAMETER_NUMBER) {
+					throw SQLSyntaxErrorException(
+						"Placeholder numbers can go up to ?$MAX_PARAMETER_NUMBER, which is SQLite's limit.",
+						"42000",
+					)
+				}
 				highest = maxOf(highest, number)
 				Placeholder(match.range, number)
 			}

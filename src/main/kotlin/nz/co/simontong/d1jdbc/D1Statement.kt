@@ -560,6 +560,9 @@ open class D1Statement(
 }
 
 
+/** One or more whitespace characters. */
+private val WHITESPACE = Regex("""\s+""")
+
 /** SQL states for a request that got no reply, so a write in it may or may not have been saved. */
 private val NO_REPLY_STATES = setOf("HYT00", "08S01", "HY008")
 
@@ -573,6 +576,6 @@ private val STALE_SCHEMA_ERRORS = listOf("no such table", "no such column")
  * @return true when the first word is INSERT or REPLACE
  */
 private fun isInsert(sql: String): Boolean {
-	val firstWord = QUOTED_OR_COMMENT.replace(sql, " ").trim().substringBefore(" ").lowercase()
+	val firstWord = QUOTED_OR_COMMENT.replace(sql, " ").trim().split(WHITESPACE).first().lowercase()
 	return firstWord == "insert" || firstWord == "replace"
 }

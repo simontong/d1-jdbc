@@ -121,6 +121,32 @@ class D1ValuesTest {
 		assertTrue(server.requests.isEmpty())
 	}
 
+	/** Checks that a placeholder number above SQLite's limit is refused with a clear message. */
+	@Test
+	fun `refuses a placeholder number SQLite can't use`() {
+		server.connect().use { connection ->
+			for (sql in listOf("select ?32767", "select ?99999999999")) {
+				val error = assertFailsWith<SQLException>(sql) { connection.prepareStatement(sql) }
+				assertEquals("Placeholder numbers can go up to ?32766, which is SQLite's limit.", error.message)
+				assertEquals("42000", error.sqlState)
+			}
+			assertEquals(32766, connection.prepareStatement("select ?32766").parameterMetaData.parameterCount)
+		}
+	}
+
+	/** Checks that an insert written over several lines still returns the new row's ID. */
+	@Test
+	fun `returns the new row's ID for an insert written over several lines`() {
+		server.respondWithRows(changes = 1)
+
+		server.connect().use { connection ->
+			val statement = connection.createStatement()
+			statement.executeUpdate("INSERT\nINTO t (v) VALUES (1)", java.sql.Statement.RETURN_GENERATED_KEYS)
+
+			assertTrue(statement.generatedKeys.next())
+		}
+	}
+
 	/** Checks that dates and times are sent as text in the formats SQLite's date functions read. */
 	@Test
 	fun `sends dates and times in SQLite's formats`() {
