@@ -161,7 +161,7 @@ class D1DriverTest {
 	fun `lists the settings an IDE should ask for`() {
 		val settings = D1Driver().getPropertyInfo("jdbc:d1://acc123/db456", Properties())
 
-		assertEquals(listOf("password", "readOnly", "schemaCacheSeconds", "auth", "tokenFile"), settings.map { it.name })
+		assertEquals(listOf("password", "readOnly", "schemaCacheSeconds", "auth", "tokenFile", "openBrowser"), settings.map { it.name })
 		assertTrue(settings.first().required)
 	}
 

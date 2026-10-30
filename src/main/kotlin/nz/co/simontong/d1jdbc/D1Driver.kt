@@ -137,7 +137,10 @@ class D1Driver : Driver {
 		auth.choices = arrayOf("token", "browser")
 		val tokenFile = DriverPropertyInfo("tokenFile", info?.getProperty("tokenFile") ?: D1Settings.defaultTokenFile().toString())
 		tokenFile.description = "File that keeps the Cloudflare sign-in when auth is browser."
-		return arrayOf(password, readOnly, schemaCache, auth, tokenFile)
+		val openBrowser = DriverPropertyInfo("openBrowser", info?.getProperty("openBrowser") ?: "true")
+		openBrowser.description = "false stops a connection from opening the browser to sign in."
+		openBrowser.choices = arrayOf("true", "false")
+		return arrayOf(password, readOnly, schemaCache, auth, tokenFile, openBrowser)
 	}
 
 	/** @return the driver's major version */
