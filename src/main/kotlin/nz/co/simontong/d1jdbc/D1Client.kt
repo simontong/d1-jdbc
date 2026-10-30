@@ -15,6 +15,7 @@ import java.sql.SQLNonTransientConnectionException
 import java.sql.SQLSyntaxErrorException
 import java.sql.SQLTimeoutException
 import java.sql.SQLTransientConnectionException
+import java.sql.SQLTransientException
 import java.time.Duration
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
@@ -168,9 +169,11 @@ class D1Client(
 		if (!body.getValue("success").jsonPrimitive.boolean) {
 			throw errorFor(status, body.getValue("errors").jsonArray.first().jsonObject)
 		}
-		val found = body.getValue("result").jsonArray.map { item ->
+		// The API reference marks uuid and name optional, so skip a database with no ID.
+		val found = body.getValue("result").jsonArray.mapNotNull { item ->
 			val database = item.jsonObject
-			D1DatabaseInfo(database.getValue("uuid").jsonPrimitive.content, database.getValue("name").jsonPrimitive.content)
+			val id = database["uuid"]?.jsonPrimitive?.content ?: return@mapNotNull null
+			D1DatabaseInfo(id, database["name"]?.jsonPrimitive?.content ?: id)
 		}
 		val total = body["result_info"]?.jsonObject?.get("total_count")?.jsonPrimitive?.int ?: found.size
 		return found to total
@@ -185,17 +188,20 @@ class D1Client(
 	 */
 	private fun checkedBody(response: HttpResponse<String>): JsonObject {
 		if (response.statusCode() == 429) {
-			throw SQLTransientConnectionException(
-				"Cloudflare is limiting requests, either because the account made too many API calls "
-					+ "or because the database is overloaded. Wait a few minutes and try again.",
-				"08001",
+			// Cloudflare sends retry-after, in seconds, only when the rate limit was hit.
+			val wait = response.headers().firstValue("retry-after").orElse(null)?.trim()?.toLongOrNull()
+			val advice = if (wait != null) "Try again in $wait seconds." else "Wait a few minutes and try again."
+			throw SQLTransientException(
+				"Cloudflare is limiting requests, either because your Cloudflare user made too many API calls "
+					+ "or because the database is overloaded. $advice",
+				"HY000",
 			)
 		}
 
 		if (response.statusCode() >= 500) {
 			throw SQLTransientConnectionException(
 				"Cloudflare's API failed with HTTP ${response.statusCode()}. Try again shortly.",
-				"08001",
+				"08S01",
 			)
 		}
 
@@ -349,13 +355,14 @@ class D1Client(
 	 * @return the parsed result
 	 */
 	private fun parseResult(result: JsonObject): D1Result {
-		val results = result.getValue("results").jsonObject
-		val meta = result.getValue("meta").jsonObject
+		// Cloudflare's API reference marks every one of these fields optional.
+		val results = result["results"]?.jsonObject
+		val meta = result["meta"]?.jsonObject
 		return D1Result(
-			columns = results.getValue("columns").jsonArray.map { it.jsonPrimitive.content },
-			rows = results.getValue("rows").jsonArray.map { it.jsonArray.toList() },
-			changes = meta.getValue("changes").jsonPrimitive.long,
-			lastRowId = meta.getValue("last_row_id").jsonPrimitive.long,
+			columns = results?.get("columns")?.jsonArray.orEmpty().map { it.jsonPrimitive.content },
+			rows = results?.get("rows")?.jsonArray.orEmpty().map { it.jsonArray.toList() },
+			changes = meta?.get("changes")?.jsonPrimitive?.long ?: 0,
+			lastRowId = meta?.get("last_row_id")?.jsonPrimitive?.long ?: 0,
 		)
 	}
 
@@ -408,9 +415,9 @@ class D1Client(
 			}
 
 			404 -> {
-				SQLNonTransientConnectionException(
+				SQLException(
 					"Cloudflare could not find this D1 database. Check the account ID and database ID. ($message)",
-					"08001",
+					"3D000",
 					code,
 				)
 			}

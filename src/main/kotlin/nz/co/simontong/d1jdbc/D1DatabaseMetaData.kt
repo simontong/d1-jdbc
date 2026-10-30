@@ -104,7 +104,7 @@ class D1DatabaseMetaData(
 	/**
 	 * Finds the tables a metadata call asks about, each with its database name.
 	 *
-	 * @param catalog database name, or null for the chosen database
+	 * @param catalog database name, null for every database, or empty for none
 	 * @param schemaPattern schema pattern, which must match `main`
 	 * @param tablePattern table name pattern
 	 * @return matching tables, sorted by database name
@@ -185,7 +185,7 @@ class D1DatabaseMetaData(
 	/**
 	 * Finds the one table a metadata call names exactly.
 	 *
-	 * @param catalog database name, or null for the chosen database
+	 * @param catalog database name, null for every database, or empty for none
 	 * @param schema schema name, or null
 	 * @param table table name, matched ignoring case
 	 * @return the database name and table, or null when there's no such table

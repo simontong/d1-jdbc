@@ -88,7 +88,7 @@ class D1DatabasesTest {
 			assertEquals(listOf(listOf("blog"), listOf("shop")), read(connection.metaData.catalogs, "TABLE_CAT"))
 			assertEquals(
 				listOf(listOf("blog", "item")),
-				read(connection.metaData.getTables(null, null, "%", null), "TABLE_CAT", "TABLE_NAME"),
+				read(connection.metaData.getTables("blog", null, "%", null), "TABLE_CAT", "TABLE_NAME"),
 			)
 		}
 	}
@@ -103,7 +103,7 @@ class D1DatabasesTest {
 			assertEquals(listOf(listOf("shop", "id")), read(metaData.getPrimaryKeys("shop", null, "item"), "TABLE_CAT", "COLUMN_NAME"))
 			assertEquals(emptyList(), read(metaData.getTables("nope", null, "%", null), "TABLE_NAME"))
 
-			// With no database chosen and none named, every database's tables are listed.
+			// A null catalog means every database.
 			assertEquals(
 				listOf(listOf("blog", "item"), listOf("shop", "item")),
 				read(metaData.getTables(null, null, "%", null), "TABLE_CAT", "TABLE_NAME"),
@@ -133,6 +133,35 @@ class D1DatabasesTest {
 
 			assertEquals("/client/v4/accounts/acc123/d1/database/id-only/raw", server.requests.last().path)
 			assertEquals("only", connection.catalog)
+		}
+	}
+
+	/** Checks that two databases with the same name can both be chosen, each named with its ID. */
+	@Test
+	fun `tells apart databases that share a name`() {
+		server.databases = listOf("id-a" to "app", "id-b" to "app", "id-c" to "other")
+
+		server.connect("jdbc:d1://acc123").use { connection ->
+			assertEquals(
+				listOf(listOf("app (id-a)"), listOf("app (id-b)"), listOf("other")),
+				read(connection.metaData.catalogs, "TABLE_CAT"),
+			)
+			connection.catalog = "app (id-b)"
+			connection.createStatement().executeQuery("select 1")
+			assertEquals("/client/v4/accounts/acc123/d1/database/id-b/raw", server.requests.last().path)
+		}
+	}
+
+	/** Checks that a null catalog searches every database, and an empty one matches none, as JDBC says. */
+	@Test
+	fun `searches every database for a null catalog and none for an empty one`() {
+		server.connect("jdbc:d1://acc123/id-shop").use { connection ->
+			assertEquals(
+				listOf(listOf("blog", "item"), listOf("shop", "item")),
+				read(connection.metaData.getTables(null, null, "%", null), "TABLE_CAT", "TABLE_NAME"),
+			)
+			assertEquals(emptyList(), read(connection.metaData.getTables("", null, "%", null), "TABLE_NAME"))
+			assertEquals(emptyList(), read(connection.metaData.getSchemas("", null), "TABLE_SCHEM"))
 		}
 	}
 

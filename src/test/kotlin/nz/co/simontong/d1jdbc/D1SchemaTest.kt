@@ -81,7 +81,7 @@ class D1SchemaTest {
 			)
 			assertEquals(
 				listOf(listOf("parent")),
-				read(connection.metaData.getTables("", "%", "PAR%", arrayOf("TABLE")), "TABLE_NAME"),
+				read(connection.metaData.getTables("test-db", "%", "PAR%", arrayOf("TABLE")), "TABLE_NAME"),
 			)
 			assertEquals(emptyList(), read(connection.metaData.getTables("other", null, "%", null), "TABLE_NAME"))
 		}

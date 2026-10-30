@@ -67,7 +67,11 @@ class D1Connection(
 			return known
 		}
 		val listed = if (timeout != null) client.listDatabases(timeout) else client.listDatabases()
-		val loaded = listed.sortedBy { it.name.lowercase() }
+		// Cloudflare doesn't promise names are unique, so a shared name gets its ID added.
+		val shared = listed.groupingBy { it.name }.eachCount().filterValues { it > 1 }.keys
+		val loaded = listed
+			.map { if (it.name in shared) it.copy(name = "${it.name} (${it.id})") else it }
+			.sortedBy { it.name.lowercase() }
 		databaseList = loaded
 		return loaded
 	}
@@ -141,16 +145,12 @@ class D1Connection(
 	/**
 	 * Loads the schemas a metadata call asks about, each with its database name.
 	 *
-	 * @param catalog database name, or null or empty for the chosen database, or every one if none is
+	 * @param catalog database name, null for every database, or empty for none, as JDBC defines them
 	 * @return database names and schemas, sorted by name
 	 * @throws SQLException when D1 reports an error
 	 */
 	internal fun schemasFor(catalog: String?): List<Pair<String, D1Schema>> {
-		val chosen = when {
-			!catalog.isNullOrEmpty() -> databases().filter { it.name == catalog }
-			databaseId != null -> listOf(databaseWithId(databaseId!!))
-			else -> databases()
-		}
+		val chosen = if (catalog == null) databases() else databases().filter { it.name == catalog }
 		return chosen.map { it.name to schemaCacheFor(it.id).get() }
 	}
 

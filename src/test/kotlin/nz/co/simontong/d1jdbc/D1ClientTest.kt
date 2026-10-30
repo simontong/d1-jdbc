@@ -8,6 +8,7 @@ import java.sql.SQLInvalidAuthorizationSpecException
 import java.sql.SQLNonTransientConnectionException
 import java.sql.SQLSyntaxErrorException
 import java.sql.SQLTimeoutException
+import java.sql.SQLTransientException
 import java.sql.SQLTransientConnectionException
 import java.time.Duration
 import kotlin.test.AfterTest
@@ -172,7 +173,7 @@ class D1ClientTest {
 			"message":"The database db456 could not be found"}]}
 		""")
 
-		val error = assertFailsWith<SQLNonTransientConnectionException> {
+		val error = assertFailsWith<SQLException> {
 			client.execute("db456", listOf(D1Query("select 1")))
 		}
 
@@ -181,7 +182,7 @@ class D1ClientTest {
 				+ "(The database db456 could not be found)",
 			error.message,
 		)
-		assertEquals("08001", error.sqlState)
+		assertEquals("3D000", error.sqlState)
 		assertEquals(7404, error.errorCode)
 	}
 
@@ -189,17 +190,22 @@ class D1ClientTest {
 	@Test
 	fun `tells the user to wait when Cloudflare rate limits the account`() {
 		server.respond(429, "Too Many Requests")
+		server.replyHeaders = mapOf("Retry-After" to "73")
 
-		val error = assertFailsWith<SQLTransientConnectionException> {
+		val error = assertFailsWith<SQLTransientException> {
 			client.execute("db456", listOf(D1Query("select 1")))
 		}
 
 		assertEquals(
-			"Cloudflare is limiting requests, either because the account made too many API calls "
-				+ "or because the database is overloaded. Wait a few minutes and try again.",
+			"Cloudflare is limiting requests, either because your Cloudflare user made too many API calls "
+				+ "or because the database is overloaded. Try again in 73 seconds.",
 			error.message,
 		)
-		assertEquals("08001", error.sqlState)
+		assertEquals("HY000", error.sqlState)
+
+		server.replyHeaders = emptyMap()
+		val noWait = assertFailsWith<SQLTransientException> { client.execute("db456", listOf(D1Query("select 1"))) }
+		assertTrue(noWait.message!!.endsWith("Wait a few minutes and try again."))
 	}
 
 	/** Checks that the client reports a Cloudflare outage as a temporary connection error. */
@@ -212,7 +218,7 @@ class D1ClientTest {
 		}
 
 		assertEquals("Cloudflare's API failed with HTTP 502. Try again shortly.", error.message)
-		assertEquals("08001", error.sqlState)
+		assertEquals("08S01", error.sqlState)
 	}
 
 	/** Checks that the client reports a reply it cannot read as a connection error. */
@@ -347,10 +353,20 @@ class D1ClientTest {
 		assertTrue(stillInterrupted)
 	}
 
-	/** Checks that the client reports a reply with missing fields as a connection error. */
+	/** Checks that fields Cloudflare marks optional can be missing from a reply. */
 	@Test
-	fun `reports a reply with missing fields as a connection error`() {
+	fun `reads a reply without its optional fields`() {
 		server.respond(200, """{"success":true,"result":[{"results":{"columns":["a"]}}]}""")
+
+		val result = client.execute("db456", listOf(D1Query("select 1"))).single()
+
+		assertEquals(D1Result(listOf("a"), emptyList(), 0, 0), result)
+	}
+
+	/** Checks that the client reports a reply in the wrong shape as a connection error. */
+	@Test
+	fun `reports a reply in the wrong shape as a connection error`() {
+		server.respond(200, """{"success":true,"result":[1]}""")
 
 		val error = assertFailsWith<SQLNonTransientConnectionException> {
 			client.execute("db456", listOf(D1Query("select 1")))

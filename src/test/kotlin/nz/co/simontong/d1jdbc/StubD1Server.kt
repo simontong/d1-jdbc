@@ -40,6 +40,9 @@ class StubD1Server : AutoCloseable {
 	/** Database IDs and names the account lists, where the default ID matches [connect]'s URL. */
 	var databases = listOf("db456" to "test-db")
 
+	/** Extra headers to send with each SQL reply. */
+	var replyHeaders = emptyMap<String, String>()
+
 	/** Whether to close each SQL request's connection without replying, like a dropped network. */
 	var dropConnections = false
 
@@ -91,6 +94,7 @@ class StubD1Server : AutoCloseable {
 			val (replyStatus, replyBody) = handler?.invoke(body) ?: (status to responseBody)
 			val bytes = replyBody.encodeToByteArray()
 			exchange.responseHeaders.add("Content-Type", "application/json")
+			replyHeaders.forEach { (name, value) -> exchange.responseHeaders.add(name, value) }
 			exchange.sendResponseHeaders(replyStatus, if (bytes.isEmpty()) -1 else bytes.size.toLong())
 			exchange.responseBody.use { it.write(bytes) }
 		}

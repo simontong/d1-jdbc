@@ -82,7 +82,7 @@ Read-only mode is a check in the driver. For a guarantee from Cloudflare, also u
 - D1 has no transactions that you can control. Each statement is saved when it runs, so rollback is not possible. A batch, or SQL that holds more than one statement, is saved completely or not at all.
 - If Cloudflare does not reply, a statement that changes data can be saved or not saved. The error message tells you this.
 - Whole numbers larger than 9,007,199,254,740,992 can lose their last digits when you read them, because Cloudflare sends them as JSON decimals. The database stores them exactly. To read every digit, use `cast(x as text)`.
-- Cloudflare allows 1,200 API calls in 5 minutes for each token. After that, it blocks all calls for 5 minutes (https://developers.cloudflare.com/fundamentals/api/reference/limits/). The driver reads the tables of one database in 2 calls, and keeps the result for 30 seconds.
+- Cloudflare allows 1,200 API calls in 5 minutes for each Cloudflare user. This limit includes the calls from the dashboard and from your other tokens. After that, Cloudflare blocks all calls for 5 minutes (https://developers.cloudflare.com/fundamentals/api/reference/limits/). The driver reads the tables of one database in 2 calls, and keeps the result for 30 seconds.
 - A statement can have a maximum of 100 bound values (https://developers.cloudflare.com/d1/platform/limits/). SQL that holds more than one statement cannot have bound values.
 - Grid editing works only for a query that reads from one table, with no joins, grouping or unions.
 - After an insert, the only generated key that the driver can return is the row ID.
