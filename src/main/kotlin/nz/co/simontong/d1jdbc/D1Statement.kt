@@ -107,7 +107,8 @@ open class D1Statement(
 			throw error
 		} finally {
 			running = null
-			// A write may change the schema. Clearing after it too drops any copy read while it ran.
+			// A write may change the schema. Clearing after it too drops any copy read while it
+			// ran.
 			if (writes) {
 				schemaCache.clear()
 			}
@@ -134,7 +135,8 @@ open class D1Statement(
 	}
 
 	/**
-	 * Works out each result column's table column, loading the schema again once if it's out of date.
+	 * Works out each result column's table column, loading the schema again once if it's out of
+	 * date.
 	 *
 	 * @param sql SQL that made the result
 	 * @param columns the result's column names

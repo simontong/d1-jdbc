@@ -74,7 +74,10 @@ class D1DatabasesTest {
 		}
 	}
 
-	/** Checks that a database name in the URL picks that database, and an unknown or shared name says why. */
+	/**
+	 * Checks that a database name in the URL picks that database, and an unknown or shared name
+	 * says why.
+	 */
 	@Test
 	fun `starts on the database named in the URL`() {
 		server.connect("jdbc:d1://acc123/shop").use { connection ->
@@ -161,7 +164,10 @@ class D1DatabasesTest {
 		}
 	}
 
-	/** Checks that a null catalog searches every database, and an empty one matches none, as JDBC says. */
+	/**
+	 * Checks that a null catalog searches every database, and an empty one matches none, as JDBC
+	 * says.
+	 */
 	@Test
 	fun `searches every database for a null catalog and none for an empty one`() {
 		server.connect("jdbc:d1://acc123/id-shop").use { connection ->

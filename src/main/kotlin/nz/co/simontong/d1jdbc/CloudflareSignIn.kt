@@ -94,7 +94,9 @@ internal class SignInCredentials(
 	/** Lets only one browser sign-in run at a time, without blocking the token methods. */
 	private val browserLock = ReentrantLock()
 
-	/** The accounts the sign-in reaches and when they were listed, so new connections skip the call. */
+	/**
+	 * The accounts the sign-in reaches and when they were listed, so new connections skip the call.
+	 */
 	private var accounts: Pair<Instant, List<D1AccountInfo>>? = null
 
 	/** Connections that sign in through the same file share caches. */
@@ -148,7 +150,8 @@ internal class SignInCredentials(
 	}
 
 	/**
-	 * Refreshes the tokens after Cloudflare called the access token invalid, or when it is about to end.
+	 * Refreshes the tokens after Cloudflare called the access token invalid, or when it is about to
+	 * end.
 	 *
 	 * @param rejected the access token Cloudflare turned down
 	 * @param code Cloudflare's error code, or null when the reply had none
@@ -161,7 +164,8 @@ internal class SignInCredentials(
 		if (current.accessToken != rejected) {
 			return current.accessToken
 		}
-		// Each refresh uses up a refresh token, so refresh only when the token itself is the problem.
+		// Each refresh uses up a refresh token, so refresh only when the token itself is the
+		// problem.
 		val ending = !current.expiresAt.isAfter(clock.instant().plus(REFRESH_EARLY))
 		if (code != INVALID_TOKEN_CODE && !ending) {
 			return null
@@ -200,7 +204,8 @@ internal class SignInCredentials(
 	}
 
 	/**
-	 * Signs in with Cloudflare in the browser, unless a sign-in is already saved. The browser wait holds
+	 * Signs in with Cloudflare in the browser, unless a sign-in is already saved. The browser wait
+	 * holds
 	 * no lock, so other connections keep working, and only one sign-in runs at a time.
 	 *
 	 * @throws SQLException when the user cancels, the wait runs out, or Cloudflare fails
@@ -277,7 +282,8 @@ internal class SignInCredentials(
 	}
 
 	/**
-	 * Runs the browser sign-in: opens Cloudflare's page, waits for its reply, then swaps the code for tokens.
+	 * Runs the browser sign-in: opens Cloudflare's page, waits for its reply, then swaps the code
+	 * for tokens.
 	 *
 	 * @return the new tokens
 	 * @throws SQLException when the user cancels, the wait runs out, or Cloudflare fails
@@ -288,7 +294,8 @@ internal class SignInCredentials(
 		val state = randomText()
 		val reply = CompletableFuture<Map<String, String>>()
 		val server = try {
-			// The redirect names 127.0.0.1, so listen there rather than on whatever loopback Java prefers.
+			// The redirect names 127.0.0.1, so listen there rather than on whatever loopback Java
+			// prefers.
 			HttpServer.create(InetSocketAddress(InetAddress.getByName(LOOPBACK_ADDRESS), 0), 0)
 		} catch (error: IOException) {
 			throw SQLNonTransientConnectionException(
@@ -413,7 +420,8 @@ internal class SignInCredentials(
 	 * Calls Cloudflare's token endpoint and reads the tokens it sends.
 	 *
 	 * @param form form values to send, apart from the client ID
-	 * @param previous the tokens being refreshed, whose refresh token and scopes stay when the reply leaves them out
+	 * @param previous the tokens being refreshed, whose refresh token and scopes stay when the
+	 * reply leaves them out
 	 * @return the tokens
 	 * @throws SignInEndedException when Cloudflare refuses the code or refresh token
 	 * @throws SQLException when Cloudflare can't be reached or sends something else
@@ -463,7 +471,8 @@ internal class SignInCredentials(
 		if (accessToken == null || refreshToken == null) {
 			throw SQLNonTransientConnectionException("Cloudflare's sign-in sent a reply with no tokens in it.", "08004")
 		}
-		// A very short or odd lifetime would make every call refresh, so keep it within sensible bounds.
+		// A very short or odd lifetime would make every call refresh, so keep it within sensible
+		// bounds.
 		val lifetime = ((body["expires_in"] as? JsonPrimitive)?.longOrNull ?: DEFAULT_LIFETIME_SECONDS)
 			.coerceIn(MIN_LIFETIME_SECONDS, MAX_LIFETIME_SECONDS)
 		return SignInTokens(
@@ -555,7 +564,8 @@ internal class SignInCredentials(
 	/**
 	 * Reads the sign-ins of other OAuth clients from the token file.
 	 *
-	 * @return each other client's entry by client ID, or none when the file is missing or unreadable
+	 * @return each other client's entry by client ID, or none when the file is missing or
+	 * unreadable
 	 */
 	private fun otherClientsInFile(): Map<String, JsonElement> {
 		val saved = try {
@@ -569,7 +579,8 @@ internal class SignInCredentials(
 	}
 
 	/**
-	 * Runs a step while holding a lock on the token file, so connections in other programs wait their turn.
+	 * Runs a step while holding a lock on the token file, so connections in other programs wait
+	 * their turn.
 	 *
 	 * @param step the step to run
 	 * @return the step's result
@@ -682,13 +693,18 @@ internal class SignInCredentials(
 		/** How long to wait for the token endpoint. */
 		private val TOKEN_TIMEOUT = Duration.ofSeconds(30)
 
-		/** Shortest access token lifetime the driver accepts, so refreshes can't run on every call. */
+		/**
+		 * Shortest access token lifetime the driver accepts, so refreshes can't run on every call.
+		 */
 		private const val MIN_LIFETIME_SECONDS = 300L
 
 		/** Longest access token lifetime the driver accepts. */
 		private const val MAX_LIFETIME_SECONDS = 86_400L
 
-		/** Access token lifetime to assume when Cloudflare doesn't say, matching what it sends today. */
+		/**
+		 * Access token lifetime to assume when Cloudflare doesn't say, matching what it sends
+		 * today.
+		 */
 		private const val DEFAULT_LIFETIME_SECONDS = 3599L
 
 		/** Most characters of an unreadable reply to show in an error. */

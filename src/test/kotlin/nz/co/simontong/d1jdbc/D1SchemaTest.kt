@@ -346,7 +346,10 @@ class D1SchemaTest {
 		}
 	}
 
-	/** Checks that a table one connection makes shows in another, and a refresh reads changes made elsewhere. */
+	/**
+	 * Checks that a table one connection makes shows in another, and a refresh reads changes made
+	 * elsewhere.
+	 */
 	@Test
 	fun `shares schemas between connections and reads them again on refresh`() {
 		server.connect().use { browsing ->

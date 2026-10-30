@@ -289,7 +289,10 @@ class D1DriverTest {
 		}
 	}
 
-	/** Checks that an isolation level from the IDE's settings is accepted with a warning, not an error. */
+	/**
+	 * Checks that an isolation level from the IDE's settings is accepted with a warning, not an
+	 * error.
+	 */
 	@Test
 	fun `accepts an isolation level with a warning`() {
 		connect().use { connection ->
@@ -318,7 +321,10 @@ class D1DriverTest {
 		}
 	}
 
-	/** Checks that a write whose reply never came counts as possibly saved, so rollback doesn't claim success. */
+	/**
+	 * Checks that a write whose reply never came counts as possibly saved, so rollback doesn't
+	 * claim success.
+	 */
 	@Test
 	fun `treats a write that timed out as possibly saved`() {
 		server.respond(200, "{}", delayMillis = 3_000)
@@ -488,7 +494,10 @@ class D1DriverTest {
 		assertTrue(server.requests.isEmpty())
 	}
 
-	/** Checks that the driver confirms a live connection by running a query, but not again within seconds. */
+	/**
+	 * Checks that the driver confirms a live connection by running a query, but not again within
+	 * seconds.
+	 */
 	@Test
 	fun `confirms a live connection by running a query`() {
 		server.respond(200, """

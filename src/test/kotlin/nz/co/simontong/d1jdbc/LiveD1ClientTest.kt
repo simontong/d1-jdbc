@@ -35,7 +35,9 @@ class LiveD1ClientTest {
 		assertEquals(listOf(listOf(JsonPrimitive("hello"))), result.rows)
 	}
 
-	/** Checks that a URL with only the account lists the real databases and can pick one by name. */
+	/**
+	 * Checks that a URL with only the account lists the real databases and can pick one by name.
+	 */
 	@Test
 	fun `lists and picks the real account's databases`() {
 		val token = settings["D1_TEST_API_TOKEN"].orEmpty()

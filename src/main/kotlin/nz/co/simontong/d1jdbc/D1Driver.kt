@@ -61,7 +61,8 @@ class D1Driver : Driver {
 			SignInSettings(SignInCredentials.CLIENT_ID, settings.signInBaseUrl, settings.tokenFile),
 			openBrowser,
 		)
-		// Tools connect in the background too, where a browser opening out of nowhere would confuse.
+		// Tools connect in the background too, where a browser opening out of nowhere would
+		// confuse.
 		if (!signIn.isSignedIn()) {
 			if (!settings.openBrowser) {
 				throw SQLInvalidAuthorizationSpecException(
@@ -232,7 +233,8 @@ data class D1Settings(
 		private val URL_PATTERN = Regex("""^jdbc:d1://([^/?]*)(?:/([^/?]*))?/?(?:\?(.*))?$""")
 
 		/**
-		 * Works out where the sign-in is kept when no tokenFile is set, in the user's config folder.
+		 * Works out where the sign-in is kept when no tokenFile is set, in the user's config
+		 * folder.
 		 *
 		 * @return the file
 		 */
@@ -320,7 +322,8 @@ data class D1Settings(
 		}
 
 		/**
-		 * Reads the API address, allowing only Cloudflare, or this computer so tests can use a stub.
+		 * Reads the API address, allowing only Cloudflare, or this computer so tests can use a
+		 * stub.
 		 *
 		 * @param value setting text, or null for Cloudflare's address
 		 * @return the address
@@ -376,7 +379,8 @@ data class D1Settings(
 		}
 
 		/**
-		 * Reads the sign-in address, allowing only Cloudflare, or this computer so tests can use a stub.
+		 * Reads the sign-in address, allowing only Cloudflare, or this computer so tests can use a
+		 * stub.
 		 *
 		 * @param value setting text, or null for Cloudflare's address
 		 * @return the address

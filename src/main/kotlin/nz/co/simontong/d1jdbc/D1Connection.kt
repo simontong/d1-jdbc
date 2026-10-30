@@ -24,7 +24,8 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executor
 
 /**
- * A JDBC connection to the D1 databases of one or more accounts, where statements run on the chosen one.
+ * A JDBC connection to the D1 databases of one or more accounts, where statements run on the chosen
+ * one.
  *
  * @param clients one client per account, each sending SQL to that account's databases
  * @param settings settings the connection was opened with
@@ -215,9 +216,11 @@ class D1Connection(
 	 */
 	private fun schemaCacheFor(id: String): SchemaCache {
 		val client = clientFor(id)
-		// Connections of one person share schemas, so a table one connection makes shows in the others.
+		// Connections of one person share schemas, so a table one connection makes shows in the
+		// others.
 		val key = "${client.cacheKey}|$id|${settings.schemaCacheSeconds}"
-		// Drop schemas nobody has read for a while, so a long session doesn't hold every one ever seen.
+		// Drop schemas nobody has read for a while, so a long session doesn't hold every one ever
+		// seen.
 		sharedSchemaCaches.values.forEach { it.dropIfStale() }
 		return sharedSchemaCaches.computeIfAbsent(key) {
 			SchemaCache(client, id, Duration.ofSeconds(settings.schemaCacheSeconds))
@@ -229,7 +232,8 @@ class D1Connection(
 		get() = schemaCacheFor(currentDatabaseId())
 
 	/**
-	 * Lists database schemas by database name, loading each only when it's reached. With no catalog,
+	 * Lists database schemas by database name, loading each only when it's reached. With no
+	 * catalog,
 	 * the current database comes first, so a lookup that stops early reads only that one.
 	 *
 	 * @param catalog database name, null for every database, or empty for none
@@ -651,7 +655,8 @@ class D1Connection(
 			return false
 		}
 
-		// IDEs check before every query, so a good reply moments ago is enough and saves an API call.
+		// IDEs check before every query, so a good reply moments ago is enough and saves an API
+		// call.
 		if (System.nanoTime() - lastGoodReply < RECENT_REPLY.toNanos()) {
 			return true
 		}
@@ -659,7 +664,8 @@ class D1Connection(
 		// isValid must answer, not throw, so any failure means the connection isn't usable.
 		val limit = Duration.ofSeconds(timeout.toLong()).takeIf { timeout > 0 }
 		try {
-			// Load the list within the time limit first, as finding the chosen database may need it.
+			// Load the list within the time limit first, as finding the chosen database may need
+			// it.
 			val listedNow = databaseList == null
 			if (listedNow) {
 				databases(timeout = limit)

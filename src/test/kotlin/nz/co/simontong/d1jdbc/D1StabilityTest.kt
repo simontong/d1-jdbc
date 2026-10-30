@@ -65,7 +65,10 @@ class D1StabilityTest {
 		}
 	}
 
-	/** Checks that a reply larger than the limit fails with a clear error instead of filling the memory. */
+	/**
+	 * Checks that a reply larger than the limit fails with a clear error instead of filling the
+	 * memory.
+	 */
 	@Test
 	fun `refuses a reply larger than the limit`() {
 		server.respondWithRows("""["a"]""", "[[\"${"x".repeat(5_000)}\"]]")

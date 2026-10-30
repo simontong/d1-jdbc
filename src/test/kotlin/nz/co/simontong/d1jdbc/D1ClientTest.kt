@@ -305,7 +305,9 @@ class D1ClientTest {
 		assertEquals(1, server.requests.size)
 	}
 
-	/** Checks that the database list is asked for again when Cloudflare's servers fail for a moment. */
+	/**
+	 * Checks that the database list is asked for again when Cloudflare's servers fail for a moment.
+	 */
 	@Test
 	fun `tries the database list again after a server error`() {
 		server.databaseListFailures = 2
@@ -331,7 +333,9 @@ class D1ClientTest {
 		assertEquals("08S01", error.sqlState)
 	}
 
-	/** Checks that stopping the thread while waiting gives an SQL error and keeps the stop request. */
+	/**
+	 * Checks that stopping the thread while waiting gives an SQL error and keeps the stop request.
+	 */
 	@Test
 	fun `reports a stopped request and keeps the thread's stop flag`() {
 		server.respond(200, "{}", delayMillis = 5_000)

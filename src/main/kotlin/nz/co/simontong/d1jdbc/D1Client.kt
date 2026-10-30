@@ -131,7 +131,8 @@ class D1Client internal constructor(
 	 * @param databaseId database to run them on
 	 * @param statements statements to run in order
 	 * @param timeout how long to wait for the reply
-	 * @param retry whether to try again after a Cloudflare server error, which is only safe for reads
+	 * @param retry whether to try again after a Cloudflare server error, which is only safe for
+	 * reads
 	 * @param cancellation lets another thread stop the request, or null
 	 * @return results in the same order
 	 * @throws SQLException when Cloudflare can't be reached or the SQL fails
@@ -369,7 +370,8 @@ class D1Client internal constructor(
 	}
 
 	/**
-	 * Sends a request, and when asked, sends it again after short waits if Cloudflare's servers fail.
+	 * Sends a request, and when asked, sends it again after short waits if Cloudflare's servers
+	 * fail.
 	 *
 	 * @param deadline when the time limit ends, from [System.nanoTime]
 	 * @param timeout the whole time limit, for the error message
@@ -392,7 +394,8 @@ class D1Client internal constructor(
 			if (response.statusCode() < 500) {
 				return response
 			}
-			// Cloudflare's retry guide asks for a random spread, so many clients don't retry at once.
+			// Cloudflare's retry guide asks for a random spread, so many clients don't retry at
+			// once.
 			val spread = wait.toMillis() + (wait.toMillis() * random.nextDouble() * RETRY_SPREAD).toLong()
 			if (System.nanoTime() + Duration.ofMillis(spread).toNanos() >= deadline || cancellation?.cancelled == true) {
 				return response
@@ -602,20 +605,27 @@ class D1Client internal constructor(
 		/** Cloudflare's error code for a failed SQL statement. */
 		const val SQL_ERROR_CODE = 7500
 
-		/** One HTTP client for every connection, as it's safe to share and holds the open sockets. */
+		/**
+		 * One HTTP client for every connection, as it's safe to share and holds the open sockets.
+		 */
 		private val httpClient: HttpClient = HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build()
 
 		/** How long to wait to open a connection to Cloudflare. */
 		private val CONNECT_TIMEOUT: Duration
 			get() = Duration.ofSeconds(15)
 
-		/** The largest reply the driver holds in memory, so one huge query can't use up the IDE's memory. */
+		/**
+		 * The largest reply the driver holds in memory, so one huge query can't use up the IDE's
+		 * memory.
+		 */
 		private const val MAX_REPLY_BYTES = 100_000_000L
 
 		/** How long to wait before each new try of a read after a Cloudflare server error. */
 		private val RETRY_WAITS = listOf(Duration.ofMillis(250), Duration.ofSeconds(1))
 
-		/** Most extra wait added to each retry, as a share of the wait, as in Cloudflare's own SDK. */
+		/**
+		 * Most extra wait added to each retry, as a share of the wait, as in Cloudflare's own SDK.
+		 */
 		private const val RETRY_SPREAD = 0.25
 
 		/** Picks each retry's extra wait. */
@@ -650,14 +660,16 @@ class D1Client internal constructor(
 
 		/**
 		 * Sends a request and turns network failures into SQL exceptions. The whole reply, body
-		 * included, must arrive within the request's time limit, as the JDK's own limit stops at the
+		 * included, must arrive within the request's time limit, as the JDK's own limit stops at
+		 * the
 		 * headers (JDK-8208693).
 		 *
 		 * @param request request to send, with its time limit set
 		 * @param timeout the whole time limit, for the error message
 		 * @param cancellation lets another thread stop the request, or null
 		 * @return the reply
-		 * @throws SQLException when the request times out, can't connect, is cut off, is too large or
+		 * @throws SQLException when the request times out, can't connect, is cut off, is too large
+		 * or
 		 * is stopped
 		 */
 		internal fun send(request: HttpRequest, timeout: Duration, cancellation: Cancellation? = null): HttpResponse<String> {

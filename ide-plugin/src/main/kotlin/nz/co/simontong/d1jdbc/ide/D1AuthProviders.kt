@@ -56,7 +56,8 @@ class CloudflareSignInAuthProvider : DatabaseAuthProvider {
 	override fun getAuthParams(config: DatabaseConnectionConfig): List<DatabaseAuthProviderParam<*>> = emptyList()
 
 	/**
-	 * Tells the driver to sign in with Cloudflare, but only to open the browser when the user is watching.
+	 * Tells the driver to sign in with Cloudflare, but only to open the browser when the user is
+	 * watching.
 	 *
 	 * @param proto the connection being opened
 	 * @param silent whether the IDE is connecting in the background
@@ -104,7 +105,8 @@ class ApiTokenAuthProvider : DatabaseAuthProvider {
 	}
 
 	/**
-	 * Passes the saved token to the driver, asking for it when it's missing and the user is watching.
+	 * Passes the saved token to the driver, asking for it when it's missing and the user is
+	 * watching.
 	 *
 	 * @param proto the connection being opened
 	 * @param silent whether the IDE is connecting in the background

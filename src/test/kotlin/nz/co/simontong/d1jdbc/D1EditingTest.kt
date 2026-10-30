@@ -101,7 +101,10 @@ class D1EditingTest {
 		}
 	}
 
-	/** Checks that a table rebuilt by another tool, within the schema cache time, maps to its new columns. */
+	/**
+	 * Checks that a table rebuilt by another tool, within the schema cache time, maps to its new
+	 * columns.
+	 */
 	@Test
 	fun `maps columns by name after another tool rebuilds a table`() {
 		database.setUp("create table pair (a text, b integer)")
@@ -119,7 +122,10 @@ class D1EditingTest {
 		}
 	}
 
-	/** Checks that a column dropped by another tool stops the result being editable rather than mislabelled. */
+	/**
+	 * Checks that a column dropped by another tool stops the result being editable rather than
+	 * mislabelled.
+	 */
 	@Test
 	fun `doesn't map a column that no longer exists`() {
 		server.connect().use { connection ->

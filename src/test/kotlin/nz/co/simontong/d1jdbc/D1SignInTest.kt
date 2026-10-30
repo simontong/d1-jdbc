@@ -110,7 +110,9 @@ class D1SignInTest {
 		return D1Driver().signedInConnection(D1Settings.parse(url, properties), browser())
 	}
 
-	/** Checks the sign-in page gets PKCE, state and scopes, and the token request names the driver. */
+	/**
+	 * Checks the sign-in page gets PKCE, state and scopes, and the token request names the driver.
+	 */
 	@Test
 	fun `signs in with PKCE and saves the tokens for this user only`() {
 		val token = signedIn().token()
@@ -136,7 +138,10 @@ class D1SignInTest {
 		assertFalse(Files.readString(tokenFile).contains("code_verifier"))
 	}
 
-	/** Checks a malformed request to the callback doesn't stop the sign-in, and other clients' entries stay. */
+	/**
+	 * Checks a malformed request to the callback doesn't stop the sign-in, and other clients'
+	 * entries stay.
+	 */
 	@Test
 	fun `survives a malformed callback and keeps other clients in the file`() {
 		Files.writeString(tokenFile, """{"other-client":{"accessToken":"x","refreshToken":"y","expiresAt":"0","scopes":""}}""")
@@ -167,7 +172,10 @@ class D1SignInTest {
 		assertEquals(emptyList(), opened)
 	}
 
-	/** Checks an access token near its end is swapped for a new one, and the new refresh token is saved. */
+	/**
+	 * Checks an access token near its end is swapped for a new one, and the new refresh token is
+	 * saved.
+	 */
 	@Test
 	fun `refreshes the token before it ends`() {
 		val start = Instant.parse("2026-10-31T00:00:00Z")
@@ -202,7 +210,10 @@ class D1SignInTest {
 		}
 	}
 
-	/** Checks a refusal that isn't about the token, such as an unticked account, doesn't use up the refresh token. */
+	/**
+	 * Checks a refusal that isn't about the token, such as an unticked account, doesn't use up the
+	 * refresh token.
+	 */
 	@Test
 	fun `refreshes only when Cloudflare calls the token invalid`() {
 		val credentials = signedIn()
@@ -223,7 +234,10 @@ class D1SignInTest {
 		assertTrue(credentials.canWrite)
 	}
 
-	/** Checks a refresh token Cloudflare no longer accepts deletes the saved sign-in and asks for a new one. */
+	/**
+	 * Checks a refresh token Cloudflare no longer accepts deletes the saved sign-in and asks for a
+	 * new one.
+	 */
 	@Test
 	fun `asks to sign in again when the sign-in has ended`() {
 		val credentials = signedIn()
@@ -275,7 +289,10 @@ class D1SignInTest {
 		assertEquals("Could not open a browser to sign in with Cloudflare. Use an API token on this computer instead.", error.message)
 	}
 
-	/** Checks an error from the token endpoint, such as Cloudflare's block page, is shown with its status. */
+	/**
+	 * Checks an error from the token endpoint, such as Cloudflare's block page, is shown with its
+	 * status.
+	 */
 	@Test
 	fun `reports a failed token request`() {
 		signIn.failure = 403 to "error code: 1010"
@@ -320,7 +337,10 @@ class D1SignInTest {
 		assertTrue(error.message.orEmpty().startsWith("The Cloudflare sign-in doesn't include account acc-c."))
 	}
 
-	/** Checks a connection that may not open the browser asks for a sign-in instead, then uses a saved one. */
+	/**
+	 * Checks a connection that may not open the browser asks for a sign-in instead, then uses a
+	 * saved one.
+	 */
 	@Test
 	fun `waits for a sign-in when the browser may not open`() {
 		val error = assertFailsWith<SQLException> { connect("jdbc:d1://?auth=browser&openBrowser=false") }
@@ -354,7 +374,9 @@ class D1SignInTest {
 		assertTrue(error.message.orEmpty().startsWith("The Cloudflare sign-in reaches no accounts."))
 	}
 
-	/** Checks a sign-in without D1 write permission makes the connection read-only, with a warning. */
+	/**
+	 * Checks a sign-in without D1 write permission makes the connection read-only, with a warning.
+	 */
 	@Test
 	fun `makes the connection read-only without write permission`() {
 		signIn.scope = "d1.read account-settings.read offline_access"

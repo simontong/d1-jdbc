@@ -237,7 +237,8 @@ internal fun loadSchema(
 		queries += D1Query("pragma foreign_key_list($name)")
 	}
 	indexNames.forEach { queries += D1Query("pragma index_xinfo(${quoted(it)})") }
-	// Statements that failed last time, like a broken view's, are left out so they don't cost calls again.
+	// Statements that failed last time, like a broken view's, are left out so they don't cost calls
+	// again.
 	val toSend = queries.filter { it.sql !in failing }
 	val sent = toSend.chunked(STATEMENTS_PER_REQUEST).flatMap { runSkippingFailures(client, databaseId, it, failing) }
 	val bySql = toSend.map { it.sql }.zip(sent).toMap()
@@ -382,7 +383,8 @@ internal class SchemaCache(
 	}
 
 	/**
-	 * Forgets the schema once it's too old to be used, which frees its memory. It takes no lock, so a
+	 * Forgets the schema once it's too old to be used, which frees its memory. It takes no lock, so
+	 * a
 	 * slow load of one database never holds up others.
 	 */
 	fun dropIfStale() {
