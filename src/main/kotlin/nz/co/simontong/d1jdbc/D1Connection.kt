@@ -52,7 +52,11 @@ class D1Connection(
 
 	/** ID of the database statements run on, or null until one is chosen. */
 	@Volatile
-	private var databaseId: String? = settings.databaseId
+	private var databaseId: String? = null
+
+	/** Each database's name as Cloudflare lists it, by ID, before any account name is added. */
+	@Volatile
+	private var listedNames: Map<String, String> = emptyMap()
 
 	/** Every account's databases sorted by name, loaded the first time they're needed. */
 	@Volatile
@@ -74,8 +78,12 @@ class D1Connection(
 		if (known != null && !reload) {
 			return known
 		}
+		val fromCloudflare = clients.flatMap { client ->
+			if (timeout != null) client.listDatabases(timeout) else client.listDatabases()
+		}
+		listedNames = fromCloudflare.associate { it.id to it.name }
 		val listed = clients.flatMap { client ->
-			val databases = if (timeout != null) client.listDatabases(timeout) else client.listDatabases()
+			val databases = fromCloudflare.filter { it.accountId == client.accountId }
 			// With several accounts, each name starts with its account's name.
 			if (clients.size > 1) databases.map { it.copy(name = "${client.accountName} / ${it.name}") } else databases
 		}
@@ -118,11 +126,47 @@ class D1Connection(
 	 * @throws SQLException when the account has no databases
 	 */
 	private fun currentDatabaseId(): String {
-		databaseId?.let { return it }
+		chosenDatabaseId()?.let { return it }
 		// IDEs need a current database, so the first by name stands in until the user picks one.
 		val first = databases().firstOrNull() ?: throw SQLException(noDatabasesMessage(), "3D000")
 		databaseId = first.id
 		return first.id
+	}
+
+	/**
+	 * Returns the chosen database, working out the one the URL names the first time.
+	 *
+	 * @return the database ID, or null when none is chosen
+	 * @throws SQLException when the URL names a database this connection can't reach
+	 */
+	private fun chosenDatabaseId(): String? {
+		databaseId?.let { return it }
+		val start = settings.databaseId ?: return null
+		val found = findDatabase(start)
+		databaseId = found
+		return found
+	}
+
+	/**
+	 * Finds a database by its ID or by its name as Cloudflare lists it.
+	 *
+	 * @param idOrName database ID or name
+	 * @return the database ID
+	 * @throws SQLException when no database or more than one matches
+	 */
+	private fun findDatabase(idOrName: String): String {
+		val all = databases()
+		all.firstOrNull { it.id.equals(idOrName, ignoreCase = true) }?.let { return it.id }
+		val named = listedNames.filterValues { it == idOrName }.keys
+		if (named.size > 1) {
+			throw SQLException("More than one D1 database is called \"$idOrName\". Put its ID in the URL instead.", "3D000")
+		}
+		named.singleOrNull()?.let { return it }
+		// A database can be missing from the list for a short time after it's made, so trust an ID.
+		if (UUID_PATTERN.matches(idOrName)) {
+			return idOrName
+		}
+		throw SQLException("There's no D1 database called \"$idOrName\" that this connection can reach.", "3D000")
 	}
 
 	/**
@@ -480,7 +524,7 @@ class D1Connection(
 	 */
 	override fun getCatalog(): String? {
 		checkOpen()
-		val id = databaseId ?: databases().firstOrNull()?.id ?: return null
+		val id = chosenDatabaseId() ?: databases().firstOrNull()?.id ?: return null
 		return databaseWithId(id).name
 	}
 
@@ -579,7 +623,11 @@ class D1Connection(
 		}
 
 		// With no database chosen, listing the databases checks the token instead.
-		val id = databaseId
+		val id = try {
+			chosenDatabaseId()
+		} catch (error: SQLException) {
+			return false
+		}
 		val query = listOf(D1Query("select 1"))
 		try {
 			when {
@@ -678,6 +726,9 @@ class D1Connection(
 	/** @return whether this connection implements the interface */
 	override fun isWrapperFor(iface: Class<*>): Boolean = iface.isInstance(this)
 }
+
+/** The form of a D1 database ID. */
+private val UUID_PATTERN = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
 /** The isolation levels JDBC defines. */
 private val ISOLATION_LEVELS = setOf(

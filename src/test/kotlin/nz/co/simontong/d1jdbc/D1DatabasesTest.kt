@@ -74,6 +74,21 @@ class D1DatabasesTest {
 		}
 	}
 
+	/** Checks that a database name in the URL picks that database, and an unknown or shared name says why. */
+	@Test
+	fun `starts on the database named in the URL`() {
+		server.connect("jdbc:d1://acc123/shop").use { connection ->
+			assertEquals("shop", connection.catalog)
+		}
+
+		val unknown = assertFailsWith<SQLException> { server.connect("jdbc:d1://acc123/nope").catalog }
+		assertEquals("There's no D1 database called \"nope\" that this connection can reach.", unknown.message)
+
+		server.databases = listOf("id-a" to "app", "id-b" to "app")
+		val shared = assertFailsWith<SQLException> { server.connect("jdbc:d1://acc123/app").catalog }
+		assertEquals("More than one D1 database is called \"app\". Put its ID in the URL instead.", shared.message)
+	}
+
 	/** Checks that a database ID in the URL picks the database, while still listing the rest. */
 	@Test
 	fun `starts on the database in the URL`() {

@@ -94,7 +94,7 @@ class D1DriverTest {
 		}
 
 		assertEquals(
-			"The D1 URL must look like jdbc:d1://<account id> or jdbc:d1://<account id>/<database id>.",
+			"The D1 URL must look like jdbc:d1://<account id> or jdbc:d1://<account id>/<database id or name>.",
 			error.message,
 		)
 		assertTrue(server.requests.isEmpty())
@@ -132,7 +132,9 @@ class D1DriverTest {
 	@Test
 	fun `explains malformed IDs and settings`() {
 		val badId = assertFailsWith<SQLNonTransientConnectionException> { connect(url = "jdbc:d1://acc 123/db456") }
-		assertEquals("The account ID and database ID can only hold letters, numbers and dashes.", badId.message)
+		assertEquals("The account ID can only hold letters, numbers and dashes.", badId.message)
+		val badDatabase = assertFailsWith<SQLNonTransientConnectionException> { connect(url = "jdbc:d1://acc123/my db") }
+		assertEquals("The database in the URL can only hold letters, numbers, dashes, dots and underscores.", badDatabase.message)
 
 		val badEscape = assertFailsWith<SQLNonTransientConnectionException> {
 			connect(url = "jdbc:d1://acc123/db456?readOnly=%zz")

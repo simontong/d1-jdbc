@@ -62,7 +62,7 @@ The JetBrains help has more about custom drivers (https://www.jetbrains.com/help
 
 The tree shows each database by name. To pick the database that your SQL runs on, use the database switcher in the query console. Until you pick one, SQL runs on the first database by name.
 
-To start on one database, add its ID to the URL: `jdbc:d1://<account id>/<database id>`. The database ID is in the `uuid` column of `wrangler d1 list`.
+To start on one database, add its name or ID to the URL: `jdbc:d1://<account id>/<database name>`. If two databases have the same name, use the ID. The ID is in the `uuid` column of `wrangler d1 list`.
 
 ### Sign in with Cloudflare
 

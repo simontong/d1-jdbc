@@ -169,7 +169,7 @@ enum class D1Auth {
  * Connection settings read from the JDBC URL and properties.
  *
  * @property accountId Cloudflare account ID, or null to reach every account a sign-in allows
- * @property databaseId D1 database to start on, or null to choose one later
+ * @property databaseId ID or name of the D1 database to start on, or null to choose one later
  * @property apiToken Cloudflare API token, or empty when signing in
  * @property apiBaseUrl Cloudflare API base address
  * @property readOnly whether to block statements that change data
@@ -206,8 +206,11 @@ data class D1Settings(
 		/** Host names that mean this computer. */
 		private val LOCAL_HOSTS = setOf("127.0.0.1", "localhost", "[::1]")
 
-		/** Characters an account or database ID may hold. */
+		/** Characters an account ID may hold. */
 		private val ID_PATTERN = Regex("""^[A-Za-z0-9-]*$""")
+
+		/** Characters a database ID or name in the URL may hold. */
+		private val DATABASE_PATTERN = Regex("""^[A-Za-z0-9._-]*$""")
 
 		private val URL_PATTERN = Regex("""^jdbc:d1://([^/?]*)(?:/([^/?]*))?/?(?:\?(.*))?$""")
 
@@ -237,13 +240,16 @@ data class D1Settings(
 		 */
 		fun parse(url: String, info: Properties): D1Settings {
 			val match = URL_PATTERN.matchEntire(url) ?: throw SQLNonTransientConnectionException(
-				"The D1 URL must look like jdbc:d1://<account id> or jdbc:d1://<account id>/<database id>.",
+				"The D1 URL must look like jdbc:d1://<account id> or jdbc:d1://<account id>/<database id or name>.",
 				"08001",
 			)
 			val (accountId, databaseId, query) = match.destructured
-			if (!ID_PATTERN.matches(accountId) || !ID_PATTERN.matches(databaseId)) {
+			if (!ID_PATTERN.matches(accountId)) {
+				throw SQLNonTransientConnectionException("The account ID can only hold letters, numbers and dashes.", "08001")
+			}
+			if (!DATABASE_PATTERN.matches(databaseId)) {
 				throw SQLNonTransientConnectionException(
-					"The account ID and database ID can only hold letters, numbers and dashes.",
+					"The database in the URL can only hold letters, numbers, dashes, dots and underscores.",
 					"08001",
 				)
 			}
