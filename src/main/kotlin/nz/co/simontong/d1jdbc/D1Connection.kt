@@ -453,11 +453,20 @@ class D1Connection(
 	}
 
 	/**
-	 * Not supported, as D1 has no transactions.
+	 * Accepts an isolation level with a warning, as IDEs set one and D1 has no transactions.
 	 *
-	 * @throws SQLFeatureNotSupportedException always
+	 * @param level a [Connection] TRANSACTION constant
+	 * @throws SQLException when the level isn't a JDBC isolation level, or the connection is closed
 	 */
-	override fun setTransactionIsolation(level: Int) = throw notSupported("Transaction isolation")
+	override fun setTransactionIsolation(level: Int) {
+		checkOpen()
+		if (level !in ISOLATION_LEVELS) {
+			throw SQLException("$level isn't a JDBC transaction isolation level.", "HY024")
+		}
+		if (level != Connection.TRANSACTION_NONE) {
+			addWarning("D1 has no transactions, so the isolation level has no effect.")
+		}
+	}
 
 	/** @return [Connection.TRANSACTION_NONE], as D1 has no transactions */
 	override fun getTransactionIsolation(): Int {
@@ -640,6 +649,15 @@ class D1Connection(
 	/** @return whether this connection implements the interface */
 	override fun isWrapperFor(iface: Class<*>): Boolean = iface.isInstance(this)
 }
+
+/** The isolation levels JDBC defines. */
+private val ISOLATION_LEVELS = setOf(
+	Connection.TRANSACTION_NONE,
+	Connection.TRANSACTION_READ_UNCOMMITTED,
+	Connection.TRANSACTION_READ_COMMITTED,
+	Connection.TRANSACTION_REPEATABLE_READ,
+	Connection.TRANSACTION_SERIALIZABLE,
+)
 
 /**
  * Builds the error for a feature the driver doesn't support.

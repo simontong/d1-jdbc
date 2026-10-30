@@ -283,6 +283,21 @@ class D1DriverTest {
 		}
 	}
 
+	/** Checks that an isolation level from the IDE's settings is accepted with a warning, not an error. */
+	@Test
+	fun `accepts an isolation level with a warning`() {
+		connect().use { connection ->
+			connection.transactionIsolation = Connection.TRANSACTION_SERIALIZABLE
+
+			assertEquals(Connection.TRANSACTION_NONE, connection.transactionIsolation)
+			assertEquals(
+				"D1 has no transactions, so the isolation level has no effect.",
+				connection.warnings.message,
+			)
+			assertFailsWith<SQLException> { connection.transactionIsolation = 99 }
+		}
+	}
+
 	/** Checks that a write whose reply never came counts as possibly saved, so rollback doesn't claim success. */
 	@Test
 	fun `treats a write that timed out as possibly saved`() {
