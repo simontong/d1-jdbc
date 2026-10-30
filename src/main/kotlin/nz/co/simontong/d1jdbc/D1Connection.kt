@@ -88,26 +88,17 @@ class D1Connection(
 	}
 
 	/**
-	 * Works out the database statements run on, choosing the only one when the account has one.
+	 * Works out the database statements run on, choosing the first by name when none is chosen yet.
 	 *
 	 * @return the database ID
-	 * @throws SQLException when no database is chosen and the account doesn't have exactly one
+	 * @throws SQLException when the account has no databases
 	 */
 	private fun currentDatabaseId(): String {
 		databaseId?.let { return it }
-		val all = databases()
-		if (all.isEmpty()) {
-			throw SQLException("This Cloudflare account has no D1 databases.", "3D000")
-		}
-		if (all.size > 1) {
-			throw SQLException(
-				"This connection can reach several D1 databases, so choose one first. Pick it in the IDE's "
-					+ "database switcher, or add its ID to the URL.",
-				"3D000",
-			)
-		}
-		databaseId = all.single().id
-		return all.single().id
+		// IDEs need a current database, so the first by name stands in until the user picks one.
+		val first = databases().firstOrNull() ?: throw SQLException("This Cloudflare account has no D1 databases.", "3D000")
+		databaseId = first.id
+		return first.id
 	}
 
 	/**
@@ -450,12 +441,12 @@ class D1Connection(
 	/**
 	 * Names the database statements run on.
 	 *
-	 * @return the database name, or null when none is chosen yet
+	 * @return the database name, or null when the account has no databases
 	 * @throws SQLException when the database list can't be loaded
 	 */
 	override fun getCatalog(): String? {
 		checkOpen()
-		val id = databaseId ?: return databases().singleOrNull()?.name
+		val id = databaseId ?: databases().firstOrNull()?.id ?: return null
 		return databaseWithId(id).name
 	}
 

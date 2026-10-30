@@ -60,7 +60,7 @@ The JetBrains help has more about custom drivers (https://www.jetbrains.com/help
 3. Leave the user empty. Put the API token in the password field.
 4. Click Test Connection.
 
-The tree shows each database by name. To pick the database that your SQL runs on, use the database switcher in the query console.
+The tree shows each database by name. To pick the database that your SQL runs on, use the database switcher in the query console. Until you pick one, SQL runs on the first database by name.
 
 To start on one database, add its ID to the URL: `jdbc:d1://<account id>/<database id>`. The database ID is in the `uuid` column of `wrangler d1 list`.
 

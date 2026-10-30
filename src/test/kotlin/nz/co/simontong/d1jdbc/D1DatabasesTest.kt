@@ -6,7 +6,6 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -56,18 +55,13 @@ class D1DatabasesTest {
 		}
 	}
 
-	/** Checks that statements need a database chosen first, then run on the chosen one. */
+	/** Checks that statements run on the first database by name until another is chosen. */
 	@Test
 	fun `runs statements on the chosen database`() {
 		server.connect("jdbc:d1://acc123").use { connection ->
-			assertNull(connection.catalog)
-			val error = assertFailsWith<SQLException> { connection.createStatement().executeQuery("select 1") }
-			assertEquals("3D000", error.sqlState)
-			assertEquals(
-				"This connection can reach several D1 databases, so choose one first. Pick it in the IDE's "
-					+ "database switcher, or add its ID to the URL.",
-				error.message,
-			)
+			assertEquals("blog", connection.catalog)
+			connection.createStatement().executeQuery("select 1")
+			assertEquals("/client/v4/accounts/acc123/d1/database/id-blog/raw", server.requests.last().path)
 
 			connection.catalog = "shop"
 			connection.createStatement().executeQuery("select 1")
