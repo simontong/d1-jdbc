@@ -5,10 +5,12 @@ package nz.co.simontong.d1jdbc
  *
  * @property table table or view the column belongs to
  * @property column the table column, or null for the row ID
+ * @property label name SQLite gives the result column, or null when it can't be told
  */
 internal data class ColumnSource(
 	val table: SchemaTable,
 	val column: SchemaColumn?,
+	val label: String?,
 )
 
 /**
@@ -177,11 +179,10 @@ internal fun depths(tokens: List<Token>): List<Int> {
  * Works out which table column each result column comes from, for a SELECT from one table.
  *
  * @param sql SQL that made the result
- * @param columnCount number of result columns
  * @param schema the database schema
  * @return one source per result column, null where unknown, or null if not a one-table SELECT
  */
-internal fun columnSources(sql: String, columnCount: Int, schema: D1Schema): List<ColumnSource?>? {
+internal fun columnSources(sql: String, schema: D1Schema): List<ColumnSource?>? {
 	val all = tokens(sql).dropLastWhile { it.kind == TokenKind.SYMBOL && it.text == ";" }
 	if (all.none { it.isWord("select") } || all.any { it.kind == TokenKind.SYMBOL && it.text == ";" }) {
 		return null
@@ -200,8 +201,24 @@ internal fun columnSources(sql: String, columnCount: Int, schema: D1Schema): Lis
 	val items = splitOnCommas(all.subList(skip, fromIndex))
 	val (table, alias) = tableReference(all.drop(fromIndex + 1), schema) ?: return null
 
-	val sources = items.flatMap { item -> itemSources(item, table, alias) ?: return null }
-	return sources.takeIf { it.size == columnCount }
+	return items.flatMap { item -> itemSources(item, table, alias) ?: return null }
+}
+
+/**
+ * Says whether sources match a result's columns, which fails when the schema is out of date.
+ *
+ * @param sources sources from [columnSources]
+ * @param columns the result's column names
+ * @return true when the counts and every known label match
+ */
+internal fun sourcesFit(sources: List<ColumnSource?>, columns: List<String>): Boolean {
+	if (sources.size != columns.size) {
+		return false
+	}
+	return sources.zip(columns).all { (source, column) ->
+		val label = source?.label ?: return@all true
+		label.equals(column, ignoreCase = true)
+	}
 }
 
 /**
@@ -261,7 +278,7 @@ private fun itemSources(item: List<Token>, table: SchemaTable, alias: String?): 
 
 	// SQLite's * includes generated columns, so every column is listed.
 	if (texts == listOf("*") || (texts.size == 3 && texts.drop(1) == listOf(".", "*") && isTable(item[0]))) {
-		return table.columns.map { ColumnSource(table, it) }
+		return table.columns.map { ColumnSource(table, it, it.name) }
 	}
 
 	var rest = item
@@ -281,14 +298,16 @@ private fun itemSources(item: List<Token>, table: SchemaTable, alias: String?): 
 		return listOf(null)
 	}
 	val name = rest[0].text
+	val label = rest.last().text
 	val column = table.columns.firstOrNull { it.name.equals(name, ignoreCase = true) }
 	if (column != null) {
-		return listOf(ColumnSource(table, column))
+		return listOf(ColumnSource(table, column, label))
 	}
 	val isRowId = name.lowercase() in ROW_ID_NAMES && table.type == "TABLE" && !table.withoutRowId
 	if (!isRowId) {
 		return listOf(null)
 	}
-	// A table with an INTEGER PRIMARY KEY stores the row ID in that column.
-	return listOf(ColumnSource(table, table.rowIdAlias))
+	// A table with an INTEGER PRIMARY KEY stores the row ID in that column, and SQLite may label
+	// the result with either name, so the label isn't checked.
+	return listOf(ColumnSource(table, table.rowIdAlias, null))
 }

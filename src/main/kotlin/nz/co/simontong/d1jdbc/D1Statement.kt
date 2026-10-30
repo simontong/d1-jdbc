@@ -85,7 +85,15 @@ open class D1Statement(
 			connection.schemaCache.clear()
 		}
 		val timeout = if (queryTimeoutSeconds > 0) Duration.ofSeconds(queryTimeoutSeconds.toLong()) else null
-		val sent = connection.execute(queries, timeout)
+		val sent = try {
+			connection.execute(queries, timeout)
+		} catch (error: SQLException) {
+			// SQLite names a missing table or column, which means the saved schema is out of date.
+			if (STALE_SCHEMA_ERRORS.any { error.message.orEmpty().contains(it) }) {
+				connection.schemaCache.clear()
+			}
+			throw error
+		}
 		if (writes) {
 			connection.changedSinceCommit = true
 		}
@@ -104,9 +112,30 @@ open class D1Statement(
 		}
 		val rows = if (maxRows > 0) result.rows.take(maxRows) else result.rows
 		val sql = resultQueries.getOrNull(resultIndex)?.sql
-		val findSources = sql?.let { { columnSources(it, result.columns.size, connection.schemaCache.get()) } }
+		// Keep the database the query ran on, in case another one is chosen before the IDE asks.
+		val cache = connection.schemaCache
+		val findSources = sql?.let { { findColumnSources(it, result.columns, cache) } }
 		currentResultSet = D1ResultSet(this, result.columns, rows, findSources)
 		return true
+	}
+
+	/**
+	 * Works out each result column's table column, loading the schema again once if it's out of date.
+	 *
+	 * @param sql SQL that made the result
+	 * @param columns the result's column names
+	 * @param cache schema cache of the database the query ran on
+	 * @return one source per column, or null when the result isn't one table's rows
+	 * @throws SQLException when the schema can't be loaded
+	 */
+	private fun findColumnSources(sql: String, columns: List<String>, cache: SchemaCache): List<ColumnSource?>? {
+		val sources = columnSources(sql, cache.get()) ?: return null
+		if (sourcesFit(sources, columns)) {
+			return sources
+		}
+		// Another tool may have changed the table since the schema was loaded.
+		cache.clear()
+		return columnSources(sql, cache.get())?.takeIf { sourcesFit(it, columns) }
 	}
 
 	/** Closes the open result set, if any. */
@@ -523,6 +552,10 @@ open class D1Statement(
 	/** @return whether this statement implements the interface */
 	override fun isWrapperFor(iface: Class<*>): Boolean = iface.isInstance(this)
 }
+
+
+/** SQLite error text that means a table or column the schema lists no longer exists. */
+private val STALE_SCHEMA_ERRORS = listOf("no such table", "no such column")
 
 /**
  * Says whether SQL is an INSERT or REPLACE, which D1 reports a new row ID for.

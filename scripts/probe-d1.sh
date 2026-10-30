@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs live checks against the throwaway D1 database. Usage: probe.sh <env file>
+# Runs live checks against the throwaway D1 database. Usage: probe-d1.sh <env file>
 set -a; . "$1"; set +a
 URL="https://api.cloudflare.com/client/v4/accounts/$D1_TEST_ACCOUNT_ID/d1/database/$D1_TEST_DATABASE_ID"
 q() { # q <endpoint> <json body> <label>

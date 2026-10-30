@@ -101,6 +101,38 @@ class D1EditingTest {
 		}
 	}
 
+	/** Checks that a table rebuilt by another tool, within the schema cache time, maps to its new columns. */
+	@Test
+	fun `maps columns by name after another tool rebuilds a table`() {
+		database.setUp("create table pair (a text, b integer)")
+
+		server.connect().use { connection ->
+			connection.createStatement().executeQuery("select * from pair").metaData.getTableName(1)
+			database.setUp("drop table pair", "create table pair (b integer, a text)")
+
+			val metaData = connection.createStatement().executeQuery("select * from pair").metaData
+
+			assertEquals(
+				listOf(listOf("b", "pair", "INTEGER"), listOf("a", "pair", "TEXT")),
+				columns(metaData) { listOf(metaData.getColumnName(it), metaData.getTableName(it), metaData.getColumnTypeName(it)) },
+			)
+		}
+	}
+
+	/** Checks that a column dropped by another tool stops the result being editable rather than mislabelled. */
+	@Test
+	fun `doesn't map a column that no longer exists`() {
+		server.connect().use { connection ->
+			connection.createStatement().executeQuery("select x from loose").metaData.getTableName(1)
+			database.setUp("drop table loose", "create table loose (y text)", "insert into loose values ('a')")
+
+			val error = runCatching { connection.createStatement().executeQuery("select x from loose") }.exceptionOrNull()
+			assertTrue(error is java.sql.SQLException)
+			val metaData = connection.createStatement().executeQuery("select y as x from loose").metaData
+			assertEquals(listOf("y", "loose"), listOf(metaData.getColumnName(1), metaData.getTableName(1)))
+		}
+	}
+
 	/** Checks that results not made of one table's rows name no table, so they can't be edited. */
 	@Test
 	fun `names no table when rows don't come from one table`() {
