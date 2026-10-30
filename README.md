@@ -113,7 +113,6 @@ The default `tokenFile` is `d1-jdbc/cloudflare-sign-in.json` in your config fold
 - Primary keys and foreign keys have names only when the CREATE TABLE statement gives them names.
 - The tree does not show virtual tables, for example full-text search tables. You can still query them.
 
-The behaviour that the Cloudflare docs do not describe comes from live tests. The results are in `docs/research/live-tests.md`.
 
 ## Build
 
