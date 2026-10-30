@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <drivers>
-	<driver id="nz.co.simontong.d1jdbc" name="D1 JDBC Connector" driver-class="nz.co.simontong.d1jdbc.D1Driver" icon="AllIcons.Providers.Sqlite" dialect="SQLite">
+	<driver id="nz.co.simontong.d1jdbc" name="D1 JDBC Connector" driver-class="nz.co.simontong.d1jdbc.D1Driver" icon="/d1jdbc/d1.svg" dialect="SQLite">
 		<url-template name="default" template="jdbc:d1://{account:param}[/{database:param}]"/>
 		<artifact id="D1 JDBC Connector" use="true" rolling="true"/>
 		<option name="auto-sync" value="true"/>
