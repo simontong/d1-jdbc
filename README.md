@@ -1,6 +1,6 @@
 # D1 JDBC Connector
 
-[![Build](https://github.com/simontong/d1-jdbc/actions/workflows/build.yml/badge.svg)](https://github.com/simontong/d1-jdbc/actions/workflows/build.yml) [![Release](https://img.shields.io/github/v/release/simontong/d1-jdbc)](https://github.com/simontong/d1-jdbc/releases) [![Licence: MIT](https://img.shields.io/github/license/simontong/d1-jdbc)](LICENSE)
+[![Build](https://github.com/simontong/d1-jdbc/actions/workflows/build.yml/badge.svg)](https://github.com/simontong/d1-jdbc/actions/workflows/build.yml) [![Release](https://img.shields.io/github/v/release/simontong/d1-jdbc)](https://github.com/simontong/d1-jdbc/releases) [![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
 A JDBC driver and JetBrains plugin for Cloudflare D1. Use it in PhpStorm, DataGrip and the other JetBrains IDEs.
 
