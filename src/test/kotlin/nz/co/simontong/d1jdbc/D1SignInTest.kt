@@ -261,6 +261,18 @@ class D1SignInTest {
 		assertTrue(error.message.orEmpty().startsWith("The Cloudflare sign-in doesn't include account acc-c."))
 	}
 
+	/** Checks a connection that may not open the browser asks for a sign-in instead, then uses a saved one. */
+	@Test
+	fun `waits for a sign-in when the browser may not open`() {
+		val error = assertFailsWith<SQLException> { connect("jdbc:d1://?auth=browser&openBrowser=false") }
+		assertEquals("You need to sign in with Cloudflare. Connect to this data source to open the sign-in page.", error.message)
+		assertEquals(emptyList(), opened)
+
+		connect().close()
+		connect("jdbc:d1://?auth=browser&openBrowser=false").close()
+		assertEquals(1, opened.size)
+	}
+
 	/** Checks a sign-in with no ticked accounts says what to do. */
 	@Test
 	fun `reports a sign-in that reaches no accounts`() {

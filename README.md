@@ -36,10 +36,14 @@ In the Cloudflare dashboard, press Ctrl+K (Cmd+K on a Mac), then select Copy acc
 
 ### With the plugin
 
-1. Download the plugin jar from the releases page.
-2. In the IDE, open Settings | Plugins | ⚙ | Install Plugin from Disk, and select the jar.
+1. Download the plugin zip from the releases page.
+2. In the IDE, open Settings | Plugins | ⚙ | Install Plugin from Disk, and select the zip.
 3. Add a data source and select D1 JDBC Connector. The IDE downloads the driver.
-4. Do the steps in "Connect to D1".
+4. In Authentication, select one of these:
+   - Cloudflare sign-in: click Test Connection, then sign in with Cloudflare in the browser. Leave Account empty to use every account that you select on Cloudflare's page.
+   - API token: put your account ID in Account, and the API token in API token.
+
+The plugin opens the browser only when you connect. When the IDE connects in the background and you are not signed in, the connection fails and asks you to connect.
 
 ### Without the plugin
 
@@ -66,7 +70,7 @@ To start on one database, add its name or ID to the URL: `jdbc:d1://<account id>
 
 ### Sign in with Cloudflare
 
-You can sign in with Cloudflare in the browser instead of making an API token.
+With the plugin, use the Cloudflare sign-in option in Authentication. Without the plugin, sign in like this:
 
 1. Set the connection type to URL only, and set the URL to `jdbc:d1://?auth=browser`.
 2. Leave the user and password empty.
@@ -122,7 +126,9 @@ You need Java 17 or later.
 The build makes two files:
 
 - The driver: `build/libs/d1-jdbc-<version>-all.jar`
-- The plugin: `ide-plugin/build/libs/d1-jdbc-ide-plugin-<version>.jar`
+- The plugin: `ide-plugin/build/distributions/d1-jdbc-ide-plugin-<version>.zip`
+
+The plugin build downloads PhpStorm to compile against, which is large. To use an installed PhpStorm instead, add `-PlocalIde=<path to PhpStorm>`.
 
 A release build, made with `-PreleaseVersion`, sets the plugin to download the driver from the GitHub release with the same version. Any other build sets the plugin to use the driver jar in `build/libs`, so you can test the plugin before a release.
 

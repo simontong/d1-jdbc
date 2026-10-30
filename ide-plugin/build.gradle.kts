@@ -1,11 +1,40 @@
 plugins {
-	base
+	alias(libs.plugins.kotlin.jvm)
+	alias(libs.plugins.intellij.platform)
 }
 
 version = rootProject.version
 
-// The plugin holds only XML, so it's a plain jar with the version and driver address filled in.
-val pluginJar = tasks.register<Jar>("pluginJar") {
+repositories {
+	mavenCentral()
+	intellijPlatform {
+		defaultRepositories()
+	}
+}
+
+dependencies {
+	intellijPlatform {
+		// -PlocalIde=/path/to/phpstorm builds against an installed IDE, which skips a large download.
+		val localIde = providers.gradleProperty("localIde").orNull
+		if (localIde != null) {
+			local(localIde)
+		} else {
+			phpstorm("2026.2.3")
+		}
+		bundledPlugin("com.intellij.database")
+	}
+}
+
+kotlin {
+	// PhpStorm 2026.2 runs on Java 25 and ships Kotlin 2.4.
+	jvmToolchain(21)
+}
+
+intellijPlatform {
+	buildSearchableOptions = false
+}
+
+tasks.processResources {
 	val pluginVersion = project.version.toString()
 	val releaseUrl = "https://github.com/simontong/d1-jdbc/releases/download/v$pluginVersion"
 	val tagUrl = "https://raw.githubusercontent.com/simontong/d1-jdbc/v$pluginVersion"
@@ -17,23 +46,18 @@ val pluginJar = tasks.register<Jar>("pluginJar") {
 	val localDriver = providers.gradleProperty("driverJarUrl").orNull ?: builtDriver.takeUnless { isRelease }
 	val driverUrl = localDriver ?: "$releaseUrl/d1-jdbc-$pluginVersion-all.jar"
 	val licenseUrl = if (localDriver != null) "file://" + rootProject.file("LICENSE").absolutePath else "$tagUrl/LICENSE"
-
 	if (localDriver == builtDriver) {
 		dependsOn(":shadowJar")
 	}
 
-	archiveBaseName = "d1-jdbc-ide-plugin"
-	destinationDirectory = layout.buildDirectory.dir("libs")
 	inputs.property("pluginVersion", pluginVersion)
 	inputs.property("driverUrl", driverUrl)
 	inputs.property("licenseUrl", licenseUrl)
-	from("src/main/resources") {
-		filesMatching("**/*.xml") {
-			expand("version" to pluginVersion, "driverUrl" to driverUrl, "licenseUrl" to licenseUrl)
-		}
+	filesMatching("d1jdbc/*.xml") {
+		expand("version" to pluginVersion, "driverUrl" to driverUrl, "licenseUrl" to licenseUrl)
 	}
 }
 
-tasks.assemble {
-	dependsOn(pluginJar)
+tasks.buildPlugin {
+	archiveBaseName = "d1-jdbc-ide-plugin"
 }

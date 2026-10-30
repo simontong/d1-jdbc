@@ -1,11 +1,10 @@
 <idea-plugin>
 	<id>nz.co.simontong.d1jdbc</id>
 	<name>D1 JDBC Connector</name>
-	<version>${version}</version>
 	<vendor url="https://github.com/simontong/d1-jdbc">Simon Tong</vendor>
 	<description><![CDATA[
 		<p>Browse, query and edit Cloudflare® D1 databases in the database tools.</p>
-		<p>Add a data source, select D1 JDBC Connector, and enter your Cloudflare account ID. Use a Cloudflare API token with D1 permission as the password. The IDE downloads the open source driver from GitHub when you first connect.</p>
+		<p>Add a data source and select D1 JDBC Connector. Choose Cloudflare sign-in to sign in with Cloudflare in the browser, or API token to use a token with D1 permission and your account ID. The IDE downloads the open source driver from GitHub when you first connect.</p>
 		<p>Source code and help: <a href="https://github.com/simontong/d1-jdbc">github.com/simontong/d1-jdbc</a></p>
 		<p>This plugin is not affiliated with or endorsed by Cloudflare, Inc. Cloudflare and the Cloudflare logo are trademarks and/or registered trademarks of Cloudflare, Inc. in the United States and other jurisdictions.</p>
 	]]></description>
@@ -17,5 +16,7 @@
 	<extensions defaultExtensionNs="com.intellij.database">
 		<driversConfig config="d1jdbc/drivers.xml"/>
 		<artifactsConfig config="d1jdbc/artifacts.xml"/>
+		<connectionInterceptor implementation="nz.co.simontong.d1jdbc.ide.CloudflareSignInAuthProvider" order="first"/>
+		<connectionInterceptor implementation="nz.co.simontong.d1jdbc.ide.ApiTokenAuthProvider"/>
 	</extensions>
 </idea-plugin>

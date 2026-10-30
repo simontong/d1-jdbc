@@ -60,6 +60,13 @@ class D1Driver : Driver {
 			SignInSettings(SignInCredentials.CLIENT_ID, settings.signInBaseUrl, settings.tokenFile),
 			openBrowser,
 		)
+		// Tools connect in the background too, where a browser opening out of nowhere would confuse.
+		if (!settings.openBrowser && !signIn.isSignedIn()) {
+			throw SQLInvalidAuthorizationSpecException(
+				"You need to sign in with Cloudflare. Connect to this data source to open the sign-in page.",
+				"28000",
+			)
+		}
 		val accounts = D1Client("", signIn, settings.apiBaseUrl).listAccounts()
 		if (accounts.isEmpty()) {
 			throw SQLInvalidAuthorizationSpecException(
@@ -177,6 +184,7 @@ enum class D1Auth {
  * @property auth how the connection proves who it is
  * @property signInBaseUrl Cloudflare sign-in base address
  * @property tokenFile file that keeps the Cloudflare sign-in
+ * @property openBrowser whether connecting may open the browser to sign in
  */
 data class D1Settings(
 	val accountId: String?,
@@ -188,6 +196,7 @@ data class D1Settings(
 	val auth: D1Auth = D1Auth.TOKEN,
 	val signInBaseUrl: URI = URI.create(SignInCredentials.CLOUDFLARE_SIGN_IN),
 	val tokenFile: Path = defaultTokenFile(),
+	val openBrowser: Boolean = true,
 ) {
 	/**
 	 * Describes the settings without the API token, so it never ends up in logs.
@@ -196,7 +205,8 @@ data class D1Settings(
 	 */
 	override fun toString(): String {
 		return "D1Settings(accountId=$accountId, databaseId=$databaseId, apiBaseUrl=$apiBaseUrl, readOnly=$readOnly, " +
-			"schemaCacheSeconds=$schemaCacheSeconds, auth=$auth, signInBaseUrl=$signInBaseUrl, tokenFile=$tokenFile)"
+			"schemaCacheSeconds=$schemaCacheSeconds, auth=$auth, signInBaseUrl=$signInBaseUrl, tokenFile=$tokenFile, " +
+			"openBrowser=$openBrowser)"
 	}
 
 	companion object {
@@ -288,6 +298,7 @@ data class D1Settings(
 				auth = auth,
 				signInBaseUrl = signInBaseUrl(options["signInBaseUrl"]),
 				tokenFile = options["tokenFile"]?.takeIf { it.isNotBlank() }?.let { Path.of(it.trim()) } ?: defaultTokenFile(),
+				openBrowser = options["openBrowser"]?.trim()?.lowercase() != "false",
 			)
 		}
 

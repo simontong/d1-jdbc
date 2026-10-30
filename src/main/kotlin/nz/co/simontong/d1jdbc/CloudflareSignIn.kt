@@ -91,6 +91,16 @@ internal class SignInCredentials(
 		@Synchronized get() = D1_WRITE_SCOPE in currentTokens().scopes
 
 	/**
+	 * Says whether a sign-in is saved, so connecting won't need the browser.
+	 *
+	 * @return true when signed in
+	 */
+	@Synchronized
+	fun isSignedIn(): Boolean {
+		return tokens != null || withFileLock { readTokenFile() } != null
+	}
+
+	/**
 	 * Returns an access token with at least a minute left, refreshing or signing in when needed.
 	 *
 	 * @return the access token

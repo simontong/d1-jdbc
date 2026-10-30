@@ -21,6 +21,6 @@ jobs:
         with:
           cache-provider: basic
       - run: ./gradlew build -PreleaseVersion="${GITHUB_REF_NAME#v}"
-      - run: gh release create "$GITHUB_REF_NAME" build/libs/d1-jdbc-*-all.jar ide-plugin/build/libs/d1-jdbc-ide-plugin-*.jar --title "$GITHUB_REF_NAME" --generate-notes
+      - run: gh release create "$GITHUB_REF_NAME" build/libs/d1-jdbc-*-all.jar ide-plugin/build/distributions/d1-jdbc-ide-plugin-*.zip --title "$GITHUB_REF_NAME" --generate-notes
         env:
           GH_TOKEN: ${{ github.token }}
