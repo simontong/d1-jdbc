@@ -56,11 +56,10 @@ internal fun tokens(sql: String): List<Token> {
 	var index = 0
 	while (index < sql.length) {
 		val char = sql[index]
-		val rest = sql.substring(index)
 		when {
 			char.isWhitespace() -> index++
-			rest.startsWith("--") -> index = sql.indexOf('\n', index).let { if (it < 0) sql.length else it }
-			rest.startsWith("/*") -> index = sql.indexOf("*/", index + 2).let { if (it < 0) sql.length else it + 2 }
+			sql.startsWith("--", index) -> index = sql.indexOf('\n', index).let { if (it < 0) sql.length else it }
+			sql.startsWith("/*", index) -> index = sql.indexOf("*/", index + 2).let { if (it < 0) sql.length else it + 2 }
 			char == '"' || char == '`' || char == '[' -> {
 				val close = if (char == '[') ']' else char
 				val end = quoteEnd(sql, index, close)

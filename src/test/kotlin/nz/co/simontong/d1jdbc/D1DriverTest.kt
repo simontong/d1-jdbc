@@ -298,6 +298,20 @@ class D1DriverTest {
 		}
 	}
 
+	/** Checks that a schema reply in a shape the driver doesn't expect gives a clear SQL error. */
+	@Test
+	fun `explains a schema reply it can't read`() {
+		val oddResult = """{"results":{"columns":["unexpected"],"rows":[[1]]},"success":true,"meta":{"changes":0,"last_row_id":0}}"""
+		server.respond(200, """{"result":[$oddResult,$oddResult],"errors":[],"messages":[],"success":true}""")
+
+		connect().use { connection ->
+			val error = assertFailsWith<SQLException> { connection.metaData.getTables(null, null, "%", null) }
+
+			assertEquals("D1 sent a schema reply the driver could not read.", error.message)
+			assertEquals("08000", error.sqlState)
+		}
+	}
+
 	/** Checks that a write whose reply never came counts as possibly saved, so rollback doesn't claim success. */
 	@Test
 	fun `treats a write that timed out as possibly saved`() {

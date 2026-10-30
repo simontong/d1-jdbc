@@ -57,15 +57,17 @@ class D1Connection(
 	 * Lists the account's databases, loading the list the first time or when asked to.
 	 *
 	 * @param reload whether to ask Cloudflare again
+	 * @param timeout how long to wait, or null for the client's default
 	 * @return the databases sorted by name
 	 * @throws SQLException when Cloudflare can't be reached or rejects the token
 	 */
-	internal fun databases(reload: Boolean = false): List<D1DatabaseInfo> {
+	internal fun databases(reload: Boolean = false, timeout: Duration? = null): List<D1DatabaseInfo> {
 		val known = databaseList
 		if (known != null && !reload) {
 			return known
 		}
-		val loaded = client.listDatabases().sortedBy { it.name.lowercase() }
+		val listed = if (timeout != null) client.listDatabases(timeout) else client.listDatabases()
+		val loaded = listed.sortedBy { it.name.lowercase() }
 		databaseList = loaded
 		return loaded
 	}
@@ -551,7 +553,7 @@ class D1Connection(
 		val query = listOf(D1Query("select 1"))
 		try {
 			when {
-				id == null -> databases(reload = true)
+				id == null -> databases(reload = true, Duration.ofSeconds(timeout.toLong()).takeIf { timeout > 0 })
 				timeout > 0 -> client.execute(id, query, Duration.ofSeconds(timeout.toLong()))
 				else -> client.execute(id, query)
 			}

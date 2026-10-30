@@ -80,7 +80,6 @@ class D1Client(
 	private val baseUri: URI = URI.create("https://api.cloudflare.com/client/v4"),
 	private val requestTimeout: Duration = Duration.ofSeconds(60),
 ) {
-	private val httpClient = HttpClient.newHttpClient()
 
 	/**
 	 * Runs statements on a D1 database and returns one result per statement.
@@ -118,20 +117,21 @@ class D1Client(
 	/**
 	 * Lists every D1 database in the account, reading every page of Cloudflare's list.
 	 *
+	 * @param timeout how long to wait for each page
 	 * @return the databases in the order Cloudflare lists them
 	 * @throws SQLException when Cloudflare can't be reached or rejects the token
 	 */
-	fun listDatabases(): List<D1DatabaseInfo> {
+	fun listDatabases(timeout: Duration = requestTimeout): List<D1DatabaseInfo> {
 		val databases = mutableListOf<D1DatabaseInfo>()
 		var page = 1
 		while (true) {
 			val uri = URI.create("$baseUri/accounts/$accountId/d1/database?page=$page&per_page=$DATABASES_PER_PAGE")
 			val request = HttpRequest.newBuilder(uri)
 				.header("Authorization", "Bearer $apiToken")
-				.timeout(requestTimeout)
+				.timeout(timeout)
 				.GET()
 				.build()
-			val response = send(request, requestTimeout)
+			val response = send(request, timeout)
 			val body = checkedBody(response)
 			val (found, total) = try {
 				readDatabasePage(response.statusCode(), body)
@@ -392,6 +392,9 @@ class D1Client(
 	internal companion object {
 		/** Cloudflare's error code for a failed SQL statement. */
 		const val SQL_ERROR_CODE = 7500
+
+		/** One HTTP client for every connection, as it's safe to share and holds the open sockets. */
+		private val httpClient: HttpClient = HttpClient.newHttpClient()
 
 		/** Databases asked for per page of the list, which is Cloudflare's most. */
 		private const val DATABASES_PER_PAGE = 10000

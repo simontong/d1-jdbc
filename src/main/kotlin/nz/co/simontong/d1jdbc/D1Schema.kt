@@ -331,7 +331,16 @@ internal class SchemaCache(
 		if (cached != null && clock() - loadedAt < maxAge.toNanos()) {
 			return cached
 		}
-		val loaded = loadSchema(client, databaseId)
+		val loaded = try {
+			loadSchema(client, databaseId)
+		} catch (error: RuntimeException) {
+			// A missing field or wrong type in D1's reply shows up as one of these.
+			throw java.sql.SQLNonTransientConnectionException(
+				"D1 sent a schema reply the driver could not read.",
+				"08000",
+				error,
+			)
+		}
 		schema = loaded
 		loadedAt = clock()
 		return loaded
