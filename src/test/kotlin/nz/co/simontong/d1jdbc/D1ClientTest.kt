@@ -348,7 +348,10 @@ class D1ClientTest {
 		worker.join(5_000)
 
 		assertTrue(error is SQLException, "Got $error")
-		assertEquals("The request to Cloudflare was stopped before it replied.", error?.message)
+		assertEquals(
+			"The request to Cloudflare was stopped. A statement that changes data may or may not have been saved.",
+			error?.message,
+		)
 		assertEquals("HY008", (error as SQLException).sqlState)
 		assertTrue(stillInterrupted)
 	}

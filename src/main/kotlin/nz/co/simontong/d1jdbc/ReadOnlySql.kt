@@ -17,8 +17,13 @@ private val READ_PRAGMAS = setOf(
 	"collation_list", "function_list", "compile_options",
 )
 
-/** Comments, string literals and quoted names, which can hold any word. */
-internal val QUOTED_OR_COMMENT = Regex("""--[^\n]*|/\*[\s\S]*?(\*/|$)|'(?:[^']|'')*'|"(?:[^"]|"")*"|`[^`]*`|\[[^\]]*]""")
+/**
+ * Comments, string literals and quoted names, which can hold any word. The quote patterns are
+ * possessive, as Java's regex engine would otherwise use one stack frame per character.
+ */
+internal val QUOTED_OR_COMMENT = Regex(
+	"""--[^\n]*|/\*[\s\S]*?(\*/|$)|'[^']*+(?:''[^']*+)*+'|"[^"]*+(?:""[^"]*+)*+"|`[^`]*+`|\[[^\]]*+]""",
+)
 
 /**
  * Says whether SQL only reads data, as a safety net for read-only connections.
@@ -42,7 +47,7 @@ internal fun isReadOnlySql(sql: String): Boolean {
  */
 private fun isReadOnlyStatement(statement: String): Boolean {
 	val words = statement.split(Regex("""[\s(]+""")).filter { it.isNotEmpty() }
-	val first = words.first().lowercase()
+	val first = words.firstOrNull()?.lowercase() ?: return false
 	if (first !in READ_STARTS) {
 		return false
 	}

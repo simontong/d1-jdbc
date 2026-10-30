@@ -196,12 +196,13 @@ class StubD1Server : AutoCloseable {
 	 * @param columns column names as JSON, like `["a","b"]`
 	 * @param rows rows as JSON, like `[[1,"x"]]`
 	 * @param changes changed-row count
+	 * @param delayMillis wait before replying
 	 */
-	fun respondWithRows(columns: String = "[]", rows: String = "[]", changes: Int = 0) {
+	fun respondWithRows(columns: String = "[]", rows: String = "[]", changes: Int = 0, delayMillis: Long = 0) {
 		respond(200, """
 			{"result":[{"results":{"columns":$columns,"rows":$rows},"success":true,
 			"meta":{"changes":$changes,"last_row_id":0}}],"errors":[],"messages":[],"success":true}
-		""")
+		""", delayMillis)
 	}
 
 	/** Stops the server. */

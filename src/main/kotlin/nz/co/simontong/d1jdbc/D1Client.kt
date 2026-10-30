@@ -1,5 +1,6 @@
 package nz.co.simontong.d1jdbc
 
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.math.BigDecimal
 import java.net.ConnectException
@@ -8,6 +9,7 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.net.http.HttpTimeoutException
+import java.nio.ByteBuffer
 import java.sql.SQLException
 import java.sql.SQLIntegrityConstraintViolationException
 import java.sql.SQLNonTransientConnectionException
@@ -17,6 +19,13 @@ import java.sql.SQLTransientConnectionException
 import java.sql.SQLTransientException
 import java.time.Duration
 import java.util.Random
+import java.util.concurrent.CancellationException
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletionStage
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Flow
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -123,6 +132,7 @@ class D1Client internal constructor(
 	 * @param statements statements to run in order
 	 * @param timeout how long to wait for the reply
 	 * @param retry whether to try again after a Cloudflare server error, which is only safe for reads
+	 * @param cancellation lets another thread stop the request, or null
 	 * @return results in the same order
 	 * @throws SQLException when Cloudflare can't be reached or the SQL fails
 	 */
@@ -131,10 +141,11 @@ class D1Client internal constructor(
 		statements: List<D1Query>,
 		timeout: Duration = requestTimeout,
 		retry: Boolean = false,
+		cancellation: Cancellation? = null,
 	): List<D1Result> {
 		val uri = URI.create("$baseUri/accounts/$accountId/d1/database/$databaseId/raw")
 		val body = requestJson(statements).toString()
-		val response = sendWithToken(timeout, retry) { token, timeLeft ->
+		val response = sendWithToken(timeout, retry, cancellation) { token, timeLeft ->
 			HttpRequest.newBuilder(uri)
 				.header("Authorization", "Bearer $token")
 				.header("Content-Type", "application/json")
@@ -245,7 +256,7 @@ class D1Client internal constructor(
 	 * @throws SQLException when Cloudflare can't be reached or the reply reports a failure
 	 */
 	private fun getPage(uri: URI, timeout: Duration): JsonObject {
-		val response = sendWithToken(timeout, retry = true) { token, timeLeft ->
+		val response = sendWithToken(timeout, retry = true, cancellation = null) { token, timeLeft ->
 			HttpRequest.newBuilder(uri)
 				.header("Authorization", "Bearer $token")
 				.timeout(timeLeft)
@@ -272,6 +283,7 @@ class D1Client internal constructor(
 	 *
 	 * @param timeout time limit for every try together
 	 * @param retry whether sending it again after a server error is safe
+	 * @param cancellation lets another thread stop the request, or null
 	 * @param build builds the request around a token and the time left
 	 * @return the last reply
 	 * @throws SQLException when the request fails, runs out of time, or no token can be had
@@ -279,17 +291,18 @@ class D1Client internal constructor(
 	private fun sendWithToken(
 		timeout: Duration,
 		retry: Boolean,
+		cancellation: Cancellation?,
 		build: (String, Duration) -> HttpRequest,
 	): HttpResponse<String> {
 		val deadline = System.nanoTime() + timeout.toNanos()
 		val token = credentials.token()
-		val response = sendAndRetry(deadline, timeout, retry) { build(token, it) }
+		val response = sendAndRetry(deadline, timeout, retry, cancellation) { build(token, it) }
 		if (response.statusCode() != 401 && response.statusCode() != 403) {
 			return response
 		}
 		// A sign-in token can end early, so get a new one and try once more.
 		val renewed = credentials.renew(token, errorCode(response)) ?: return response
-		return sendAndRetry(deadline, timeout, retry) { build(renewed, it) }
+		return sendAndRetry(deadline, timeout, retry, cancellation) { build(renewed, it) }
 	}
 
 	/**
@@ -361,6 +374,7 @@ class D1Client internal constructor(
 	 * @param deadline when the time limit ends, from [System.nanoTime]
 	 * @param timeout the whole time limit, for the error message
 	 * @param retry whether sending it again is safe
+	 * @param cancellation lets another thread stop the request, or null
 	 * @param build builds the request with the time left
 	 * @return the last reply
 	 * @throws SQLException when the request times out, can't connect, is cut off or is stopped
@@ -369,17 +383,18 @@ class D1Client internal constructor(
 		deadline: Long,
 		timeout: Duration,
 		retry: Boolean,
+		cancellation: Cancellation?,
 		build: (Duration) -> HttpRequest,
 	): HttpResponse<String> {
 		val waits = if (retry) RETRY_WAITS else emptyList()
 		for (wait in waits) {
-			val response = send(build(timeLeft(deadline, timeout)), timeout)
+			val response = send(build(timeLeft(deadline, timeout)), timeout, cancellation)
 			if (response.statusCode() < 500) {
 				return response
 			}
 			// Cloudflare's retry guide asks for a random spread, so many clients don't retry at once.
 			val spread = wait.toMillis() + (wait.toMillis() * random.nextDouble() * RETRY_SPREAD).toLong()
-			if (System.nanoTime() + Duration.ofMillis(spread).toNanos() >= deadline) {
+			if (System.nanoTime() + Duration.ofMillis(spread).toNanos() >= deadline || cancellation?.cancelled == true) {
 				return response
 			}
 			try {
@@ -389,7 +404,7 @@ class D1Client internal constructor(
 				throw SQLException("The request to Cloudflare was stopped before it replied.", "HY008", error)
 			}
 		}
-		return send(build(timeLeft(deadline, timeout)), timeout)
+		return send(build(timeLeft(deadline, timeout)), timeout, cancellation)
 	}
 
 	/**
@@ -557,7 +572,14 @@ class D1Client internal constructor(
 		const val SQL_ERROR_CODE = 7500
 
 		/** One HTTP client for every connection, as it's safe to share and holds the open sockets. */
-		private val httpClient: HttpClient = HttpClient.newHttpClient()
+		private val httpClient: HttpClient = HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build()
+
+		/** How long to wait to open a connection to Cloudflare. */
+		private val CONNECT_TIMEOUT: Duration
+			get() = Duration.ofSeconds(15)
+
+		/** The largest reply the driver holds in memory, so one huge query can't use up the IDE's memory. */
+		private const val MAX_REPLY_BYTES = 100_000_000L
 
 		/** How long to wait before each new try of a read after a Cloudflare server error. */
 		private val RETRY_WAITS = listOf(Duration.ofMillis(250), Duration.ofSeconds(1))
@@ -593,36 +615,177 @@ class D1Client internal constructor(
 		private const val ACCOUNTS_PER_PAGE = 50
 
 		/**
-		 * Sends a request and turns network failures into SQL exceptions.
+		 * Sends a request and turns network failures into SQL exceptions. The whole reply, body
+		 * included, must arrive within the request's time limit, as the JDK's own limit stops at the
+		 * headers (JDK-8208693).
 		 *
-		 * @param request request to send
-		 * @param timeout time limit set on the request, for the error message
+		 * @param request request to send, with its time limit set
+		 * @param timeout the whole time limit, for the error message
+		 * @param cancellation lets another thread stop the request, or null
 		 * @return the reply
-		 * @throws SQLException when the request times out, can't connect, is cut off or is stopped
+		 * @throws SQLException when the request times out, can't connect, is cut off, is too large or
+		 * is stopped
 		 */
-		internal fun send(request: HttpRequest, timeout: Duration): HttpResponse<String> {
+		internal fun send(request: HttpRequest, timeout: Duration, cancellation: Cancellation? = null): HttpResponse<String> {
+			if (cancellation?.cancelled == true) {
+				throw cancelled(null)
+			}
+			val reply = httpClient.sendAsync(request) { LimitedStringSubscriber(MAX_REPLY_BYTES) }
+			cancellation?.track(reply)
+			val limit = request.timeout().orElse(timeout)
 			try {
-				return httpClient.send(request, HttpResponse.BodyHandlers.ofString())
-			} catch (error: HttpTimeoutException) {
+				return reply.get(limit.toMillis(), TimeUnit.MILLISECONDS)
+			} catch (error: TimeoutException) {
+				reply.cancel(true)
 				throw timedOut(timeout, error)
-			} catch (error: ConnectException) {
-				throw SQLTransientConnectionException(
+			} catch (error: CancellationException) {
+				throw cancelled(error)
+			} catch (error: InterruptedException) {
+				// Keep the stop request so the caller's thread still sees it.
+				reply.cancel(true)
+				Thread.currentThread().interrupt()
+				throw cancelled(error)
+			} catch (error: ExecutionException) {
+				throw networkError(error.cause ?: error, timeout, cancellation)
+			}
+		}
+
+		/**
+		 * Turns a failed request's cause into the matching SQL exception.
+		 *
+		 * @param cause why the request failed
+		 * @param timeout the whole time limit, for the error message
+		 * @param cancellation the request's cancellation, or null
+		 * @return the exception to throw
+		 */
+		private fun networkError(cause: Throwable, timeout: Duration, cancellation: Cancellation?): SQLException {
+			return when {
+				cancellation?.cancelled == true || cause is CancellationException -> cancelled(cause)
+				cause is ReplyTooLargeException -> SQLNonTransientConnectionException(
+					"Cloudflare's reply was larger than ${MAX_REPLY_BYTES / 1_000_000} MB, which is more than the "
+						+ "driver will hold in memory. Add a LIMIT to the query.",
+					"HY000",
+					cause,
+				)
+				cause is HttpTimeoutException -> timedOut(timeout, cause)
+				cause is ConnectException -> SQLTransientConnectionException(
 					"Could not reach Cloudflare's API. Check your network connection.",
 					"08001",
-					error,
+					cause,
 				)
-			} catch (error: IOException) {
-				throw SQLTransientConnectionException(
+				else -> SQLTransientConnectionException(
 					"Lost the connection to Cloudflare's API before it replied. Check your network connection and try "
 						+ "again. A statement that changes data may or may not have been saved.",
 					"08S01",
-					error,
+					cause,
 				)
-			} catch (error: InterruptedException) {
-				// Keep the stop request so the caller's thread still sees it.
-				Thread.currentThread().interrupt()
-				throw SQLException("The request to Cloudflare was stopped before it replied.", "HY008", error)
 			}
 		}
+
+		/**
+		 * Builds the error for a request that was stopped.
+		 *
+		 * @param cause what stopped it, if known
+		 * @return the exception to throw
+		 */
+		private fun cancelled(cause: Throwable?): SQLException {
+			return SQLException(
+				"The request to Cloudflare was stopped. A statement that changes data may or may not have been saved.",
+				"HY008",
+				cause,
+			)
+		}
+	}
+}
+
+/**
+ * Lets one thread stop another thread's request to Cloudflare, as JDBC's Statement.cancel asks.
+ */
+class Cancellation {
+	/** The request in flight, if any. */
+	@Volatile
+	private var request: CompletableFuture<*>? = null
+
+	/** Whether the request was stopped. */
+	@Volatile
+	var cancelled = false
+		private set
+
+	/** Stops the request in flight, and any request sent after this. */
+	fun cancel() {
+		cancelled = true
+		request?.cancel(true)
+	}
+
+	/**
+	 * Remembers the request in flight, stopping it at once if cancel came first.
+	 *
+	 * @param future the request
+	 */
+	internal fun track(future: CompletableFuture<*>) {
+		request = future
+		if (cancelled) {
+			future.cancel(true)
+		}
+	}
+}
+
+/** Thrown when a reply is larger than the driver will hold in memory. */
+internal class ReplyTooLargeException : IOException("The reply is too large.")
+
+/**
+ * Collects a reply body as text, failing once it passes a size limit, so a huge reply can't fill
+ * the memory.
+ *
+ * @param limit the most bytes to collect
+ */
+internal class LimitedStringSubscriber(private val limit: Long) : HttpResponse.BodySubscriber<String> {
+	private val result = CompletableFuture<String>()
+	private val buffer = ByteArrayOutputStream()
+	private var subscription: Flow.Subscription? = null
+
+	/** @return the text once the whole body has arrived */
+	override fun getBody(): CompletionStage<String> = result
+
+	/**
+	 * Asks for the whole body.
+	 *
+	 * @param subscription the body's subscription
+	 */
+	override fun onSubscribe(subscription: Flow.Subscription) {
+		this.subscription = subscription
+		subscription.request(Long.MAX_VALUE)
+	}
+
+	/**
+	 * Adds a part of the body, stopping when it passes the limit.
+	 *
+	 * @param item the part's buffers
+	 */
+	override fun onNext(item: List<ByteBuffer>) {
+		for (part in item) {
+			if (buffer.size() + part.remaining() > limit) {
+				subscription?.cancel()
+				result.completeExceptionally(ReplyTooLargeException())
+				return
+			}
+			val bytes = ByteArray(part.remaining())
+			part.get(bytes)
+			buffer.write(bytes)
+		}
+	}
+
+	/**
+	 * Fails the body with the reading error.
+	 *
+	 * @param throwable the error
+	 */
+	override fun onError(throwable: Throwable) {
+		result.completeExceptionally(throwable)
+	}
+
+	/** Finishes the body as UTF-8 text. */
+	override fun onComplete() {
+		result.complete(buffer.toString(Charsets.UTF_8))
 	}
 }

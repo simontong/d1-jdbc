@@ -17,7 +17,12 @@ import kotlinx.serialization.json.JsonPrimitive
 open class D1Statement(
 	private val connection: D1Connection,
 ) : Statement {
+	@Volatile
 	private var closed = false
+
+	/** Lets [cancel] stop the request in flight, or null when none is running. */
+	@Volatile
+	private var running: Cancellation? = null
 	private var results: List<D1Result> = emptyList()
 	private var resultQueries: List<D1Query> = emptyList()
 	private var resultIndex = 0
@@ -82,8 +87,10 @@ open class D1Statement(
 		}
 		val schemaCache = connection.schemaCache
 		val timeout = if (queryTimeoutSeconds > 0) Duration.ofSeconds(queryTimeoutSeconds.toLong()) else null
+		val cancellation = Cancellation()
+		running = cancellation
 		try {
-			val sent = connection.execute(queries, timeout)
+			val sent = connection.execute(queries, timeout, cancellation)
 			if (writes) {
 				connection.changedSinceCommit = true
 			}
@@ -99,6 +106,7 @@ open class D1Statement(
 			}
 			throw error
 		} finally {
+			running = null
 			// A write may change the schema. Clearing after it too drops any copy read while it ran.
 			if (writes) {
 				schemaCache.clear()
@@ -441,8 +449,13 @@ open class D1Statement(
 		queryTimeoutSeconds = seconds
 	}
 
-	/** Not supported, as a request sent to D1 can't be stopped. */
-	override fun cancel() = throw notSupported("Cancelling statements")
+	/**
+	 * Stops the statement's request to Cloudflare from another thread. D1 may still finish a change
+	 * that it already received, which the statement's error says.
+	 */
+	override fun cancel() {
+		running?.cancel()
+	}
 
 	/** @return null, as statements raise no warnings */
 	override fun getWarnings(): SQLWarning? {

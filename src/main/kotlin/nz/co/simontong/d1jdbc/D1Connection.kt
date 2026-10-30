@@ -184,17 +184,22 @@ class D1Connection(
 	 *
 	 * @param statements statements to run in order
 	 * @param timeout how long to wait, or null for the client's default
+	 * @param cancellation lets another thread stop the request, or null
 	 * @return one result per statement
 	 * @throws SQLException when no database is chosen, or D1 reports an error
 	 */
-	internal fun execute(statements: List<D1Query>, timeout: Duration? = null): List<D1Result> {
+	internal fun execute(
+		statements: List<D1Query>,
+		timeout: Duration? = null,
+		cancellation: Cancellation? = null,
+	): List<D1Result> {
 		val id = currentDatabaseId()
 		val reads = statements.all { isReadOnlySql(it.sql) }
 		val client = clientFor(id)
 		val results = if (timeout != null) {
-			client.execute(id, statements, timeout, retry = reads)
+			client.execute(id, statements, timeout, retry = reads, cancellation = cancellation)
 		} else {
-			client.execute(id, statements, retry = reads)
+			client.execute(id, statements, retry = reads, cancellation = cancellation)
 		}
 		lastGoodReply = System.nanoTime()
 		return results
