@@ -30,7 +30,7 @@ Do not open a public issue. Follow the steps in [SECURITY.md](SECURITY.md).
 
 ### Build and test
 
-You need Java 17 or later. The [README](README.md#build-from-source) has the build steps.
+You need Java 17 or later. The [README](README.md#build) has the build steps.
 
 The tests use a stub server and an in-memory SQLite database, so they do not need a Cloudflare account. To also run the live tests, copy `.env.example` to `.env`, then add the details of a test database. The live tests make and delete their own tables.
 
