@@ -48,8 +48,6 @@ With this option, you do not need an API token or your account ID.
 
 When the browser shows "You're signed in", go back to the IDE.
 
-![The page that shows after you sign in](images/signed-in.png)
-
 The tree shows the databases of every account that you selected. If you selected more than one account, each database name starts with its account name, for example `Main / shop`.
 
 To use one account only, put its ID in **Account**.
