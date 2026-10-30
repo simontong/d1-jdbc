@@ -114,7 +114,7 @@ class D1DatabaseMetaData(
 		if (!matches(schemaPattern, SCHEMA)) {
 			return emptyList()
 		}
-		return connection.schemasFor(catalog).flatMap { (name, schema) ->
+		return connection.schemasFor(catalog).toList().flatMap { (name, schema) ->
 			schema.tables.filter { matches(tablePattern, it.name) }.map { name to it }
 		}
 	}

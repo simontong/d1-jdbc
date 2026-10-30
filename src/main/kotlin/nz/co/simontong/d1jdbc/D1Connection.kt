@@ -43,7 +43,9 @@ class D1Connection(
 
 	@Volatile
 	private var closed = false
+	@Volatile
 	private var warnings: SQLWarning? = null
+	@Volatile
 	private var readOnly = settings.readOnly
 
 	/** Whether a statement that changes data has run since the last commit or rollback. */
@@ -227,15 +229,22 @@ class D1Connection(
 		get() = schemaCacheFor(currentDatabaseId())
 
 	/**
-	 * Loads the schemas a metadata call asks about, each with its database name.
+	 * Lists database schemas by database name, loading each only when it's reached. With no catalog,
+	 * the current database comes first, so a lookup that stops early reads only that one.
 	 *
-	 * @param catalog database name, null for every database, or empty for none, as JDBC defines them
-	 * @return database names and schemas, sorted by name
-	 * @throws SQLException when D1 reports an error
+	 * @param catalog database name, null for every database, or empty for none
+	 * @return each database's name and schema
+	 * @throws SQLException when a schema or the database list can't be loaded
 	 */
-	internal fun schemasFor(catalog: String?): List<Pair<String, D1Schema>> {
-		val chosen = if (catalog == null) databases() else databases().filter { it.name == catalog }
-		return chosen.map { it.name to schemaCacheFor(it.id).get() }
+	internal fun schemasFor(catalog: String?): Sequence<Pair<String, D1Schema>> {
+		val all = databases()
+		val chosen = if (catalog == null) {
+			val current = chosenDatabaseId() ?: all.firstOrNull()?.id
+			all.sortedByDescending { it.id == current }
+		} else {
+			all.filter { it.name == catalog }
+		}
+		return chosen.asSequence().map { it.name to schemaCacheFor(it.id).get() }
 	}
 
 	/**
@@ -419,14 +428,19 @@ class D1Connection(
 	 *
 	 * @param message warning text
 	 */
+	@Synchronized
 	internal fun addWarning(message: String) {
-		val warning = SQLWarning(message, "01000")
 		val first = warnings
 		if (first == null) {
-			warnings = warning
-		} else {
-			first.setNextWarning(warning)
+			warnings = SQLWarning(message, "01000")
+			return
 		}
+		// IDEs repeat the same settings calls, so keep one copy of each warning and a short chain.
+		val chain = generateSequence(first) { it.nextWarning }.toList()
+		if (chain.size >= MAX_WARNINGS || chain.any { it.message == message }) {
+			return
+		}
+		first.setNextWarning(SQLWarning(message, "01000"))
 	}
 
 	/**
@@ -756,6 +770,9 @@ class D1Connection(
 
 /** Schemas shared by every connection in this program, keyed by person, database and cache time. */
 private val sharedSchemaCaches = ConcurrentHashMap<String, SchemaCache>()
+
+/** The most warnings a connection keeps until they are cleared. */
+private const val MAX_WARNINGS = 20
 
 /** How recent a good reply must be for [D1Connection.isValid] to skip its own check. */
 private val RECENT_REPLY = Duration.ofSeconds(5)

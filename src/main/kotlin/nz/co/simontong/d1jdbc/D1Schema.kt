@@ -320,7 +320,10 @@ internal class SchemaCache(
 	private val maxAge: Duration,
 	private val clock: () -> Long = System::nanoTime,
 ) {
+	@Volatile
 	private var schema: D1Schema? = null
+
+	@Volatile
 	private var loadedAt = 0L
 
 	/**
@@ -356,8 +359,10 @@ internal class SchemaCache(
 		schema = null
 	}
 
-	/** Forgets the schema once it's too old to be used, which frees its memory. */
-	@Synchronized
+	/**
+	 * Forgets the schema once it's too old to be used, which frees its memory. It takes no lock, so a
+	 * slow load of one database never holds up others.
+	 */
 	fun dropIfStale() {
 		if (schema != null && clock() - loadedAt >= maxAge.toNanos()) {
 			schema = null
