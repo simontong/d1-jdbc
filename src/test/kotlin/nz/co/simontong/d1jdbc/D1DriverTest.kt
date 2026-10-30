@@ -100,6 +100,46 @@ class D1DriverTest {
 		assertTrue(server.requests.isEmpty())
 	}
 
+	/** Checks that the token is only ever sent to Cloudflare, or to this computer for tests. */
+	@Test
+	fun `sends the token only to Cloudflare`() {
+		for (address in listOf("https://evil.example/client/v4", "http://api.cloudflare.com/client/v4", "not a url")) {
+			val error = assertFailsWith<SQLNonTransientConnectionException>(address) {
+				connect(extra = mapOf("apiBaseUrl" to address))
+			}
+			assertEquals(
+				"apiBaseUrl must be https://api.cloudflare.com/client/v4, so the API token is only sent to Cloudflare.",
+				error.message,
+			)
+		}
+		assertTrue(server.requests.isEmpty())
+	}
+
+	/** Checks that a token in the URL is refused, as tools save URLs as plain text. */
+	@Test
+	fun `refuses a token in the URL`() {
+		val error = assertFailsWith<SQLNonTransientConnectionException> {
+			DriverManager.getConnection("jdbc:d1://acc123/db456?password=secret-token&apiBaseUrl=${server.baseUri}")
+		}
+
+		assertEquals(
+			"Don't put the API token in the URL, as tools save URLs as plain text. Enter it as the password instead.",
+			error.message,
+		)
+	}
+
+	/** Checks that malformed IDs and settings give a clear error instead of a crash. */
+	@Test
+	fun `explains malformed IDs and settings`() {
+		val badId = assertFailsWith<SQLNonTransientConnectionException> { connect(url = "jdbc:d1://acc 123/db456") }
+		assertEquals("The account ID and database ID can only hold letters, numbers and dashes.", badId.message)
+
+		val badEscape = assertFailsWith<SQLNonTransientConnectionException> {
+			connect(url = "jdbc:d1://acc123/db456?readOnly=%zz")
+		}
+		assertEquals("The settings after ? in the URL aren't valid URL text. Check any % signs.", badEscape.message)
+	}
+
 	/** Checks that the driver asks for the token when none is given. */
 	@Test
 	fun `asks for the token when none is given`() {

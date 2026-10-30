@@ -1,6 +1,7 @@
 package nz.co.simontong.d1jdbc
 
 import java.net.URI
+import java.net.URISyntaxException
 import java.net.URLDecoder
 import java.sql.Connection
 import java.sql.Driver
@@ -131,6 +132,15 @@ data class D1Settings(
 	}
 
 	companion object {
+		/** Cloudflare's API address. */
+		private const val CLOUDFLARE_API = "https://api.cloudflare.com/client/v4"
+
+		/** Host names that mean this computer. */
+		private val LOCAL_HOSTS = setOf("127.0.0.1", "localhost", "[::1]")
+
+		/** Characters an account or database ID may hold. */
+		private val ID_PATTERN = Regex("""^[A-Za-z0-9-]*$""")
+
 		private val URL_PATTERN = Regex("""^jdbc:d1://([^/?]+)(?:/([^/?]*))?/?(?:\?(.*))?$""")
 
 		/**
@@ -147,7 +157,20 @@ data class D1Settings(
 				"08001",
 			)
 			val (accountId, databaseId, query) = match.destructured
-			val options = queryOptions(query) + info.stringPropertyNames().associateWith { info.getProperty(it) }
+			if (!ID_PATTERN.matches(accountId) || !ID_PATTERN.matches(databaseId)) {
+				throw SQLNonTransientConnectionException(
+					"The account ID and database ID can only hold letters, numbers and dashes.",
+					"08001",
+				)
+			}
+			val urlOptions = queryOptions(query)
+			if ("password" in urlOptions) {
+				throw SQLNonTransientConnectionException(
+					"Don't put the API token in the URL, as tools save URLs as plain text. Enter it as the password instead.",
+					"08001",
+				)
+			}
+			val options = urlOptions + info.stringPropertyNames().associateWith { info.getProperty(it) }
 
 			val apiToken = options["password"].orEmpty()
 			if (apiToken.isBlank()) {
@@ -161,10 +184,35 @@ data class D1Settings(
 				accountId = accountId,
 				databaseId = databaseId.ifEmpty { null },
 				apiToken = apiToken,
-				apiBaseUrl = URI.create(options["apiBaseUrl"] ?: "https://api.cloudflare.com/client/v4"),
+				apiBaseUrl = apiBaseUrl(options["apiBaseUrl"]),
 				readOnly = options["readOnly"].toBoolean(),
 				schemaCacheSeconds = schemaCacheSeconds(options["schemaCacheSeconds"]),
 			)
+		}
+
+		/**
+		 * Reads the API address, allowing only Cloudflare, or this computer so tests can use a stub.
+		 *
+		 * @param value setting text, or null for Cloudflare's address
+		 * @return the address
+		 * @throws SQLException when the address could send the token anywhere else
+		 */
+		private fun apiBaseUrl(value: String?): URI {
+			if (value == null || value == CLOUDFLARE_API) {
+				return URI.create(CLOUDFLARE_API)
+			}
+			val uri = try {
+				URI(value)
+			} catch (error: URISyntaxException) {
+				null
+			}
+			if (uri == null || uri.scheme !in setOf("http", "https") || uri.host !in LOCAL_HOSTS) {
+				throw SQLNonTransientConnectionException(
+					"apiBaseUrl must be $CLOUDFLARE_API, so the API token is only sent to Cloudflare.",
+					"08001",
+				)
+			}
+			return uri
 		}
 
 		/**
@@ -191,12 +239,20 @@ data class D1Settings(
 		 * @return options by name
 		 */
 		private fun queryOptions(query: String): Map<String, String> {
-			return query.split("&")
-				.filter { it.isNotEmpty() }
-				.associate {
-					val name = URLDecoder.decode(it.substringBefore("="), Charsets.UTF_8)
-					name to URLDecoder.decode(it.substringAfter("=", ""), Charsets.UTF_8)
-				}
+			return try {
+				query.split("&")
+					.filter { it.isNotEmpty() }
+					.associate {
+						val name = URLDecoder.decode(it.substringBefore("="), Charsets.UTF_8)
+						name to URLDecoder.decode(it.substringAfter("=", ""), Charsets.UTF_8)
+					}
+			} catch (error: IllegalArgumentException) {
+				throw SQLNonTransientConnectionException(
+					"The settings after ? in the URL aren't valid URL text. Check any % signs.",
+					"08001",
+					error,
+				)
+			}
 		}
 	}
 }
