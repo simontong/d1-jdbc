@@ -1,5 +1,5 @@
 [versions]
-intellij-platform = "2.19.0"
+intellij-platform = "2.20.1"
 junit = "6.1.3"
 kotlin = "2.4.21"
 kotlinx-serialization = "1.12.0"
